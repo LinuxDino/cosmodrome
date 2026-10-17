@@ -40,10 +40,13 @@ test('TaskStore persists tasks, events, checkpoints and recovers interrupted wor
   const task = first.create({ prompt: 'Implement recovery', cwd: '/repo', profile: 'work', mode: 'auto' });
   first.update(task.id, { status: 'executing', phase: 'agent', assignedAgent: 'claude' }, 'agent.started');
   first.checkpoint(task.id, { next: 'run tests' });
+  const child = first.create({ prompt: 'Run tests', cwd: '/repo', profile: 'work', parentTaskId: task.id, assignedAgent: 'codex', origin: 'delegation' });
 
   const second = new TaskStore(root);
   assert.equal(second.get(task.id).status, 'executing');
   assert.equal(second.events(task.id).some((event) => event.type === 'task.checkpoint'), true);
+  assert.deepEqual(second.children(task.id).map((item) => item.id), [child.id]);
+  assert.equal(second.get(child.id).assignedAgent, 'codex');
   const recovered = second.recover();
   assert.equal(recovered.length, 1);
   assert.equal(second.get(task.id).status, 'queued');
@@ -77,6 +80,7 @@ test('UsageTracker detects rate limits and silently fails over to healthy provid
     candidates: ['claude', 'codex', 'agy', 'ollama'],
     isInstalled: (a) => ['claude', 'codex', 'ollama'].includes(a),
   });
+
   assert.equal(picked.switched, true);
   assert.equal(picked.agent, 'codex');
   assert.equal(picked.from, 'claude');
@@ -84,6 +88,17 @@ test('UsageTracker detects rate limits and silently fails over to healthy provid
   tracker.clearCooldowns();
   assert.equal(tracker.isThrottled('work', 'claude'), false);
   assert.equal(tracker.nextCooldownMs('work', ['claude']), 0);
+});
+
+test('UsageTracker persists recent failovers', () => {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'usage-failover-')), 'usage.json');
+  const first = new UsageTracker(file);
+  first.recordFailover({ profile: 'work', from: 'claude', to: 'codex', reason: 'usage limit' });
+  const second = new UsageTracker(file);
+  assert.equal(second.failovers.length, 1);
+  assert.equal(second.failovers[0].profile, 'work');
+  assert.equal(second.failovers[0].from, 'claude');
+  assert.equal(second.failovers[0].to, 'codex');
 });
 
 test('orchestrator parses <cosmo:subagent> and <cosmo:tool> tags and routes tasks', () => {

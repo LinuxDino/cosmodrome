@@ -37,6 +37,7 @@ export class UsageTracker {
     try {
       const data = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
       if (data && typeof data.stats === 'object') this.stats = data.stats;
+      if (data && Array.isArray(data.failovers)) this.failovers = data.failovers;
     } catch {
       /* fresh usage state */
     }
@@ -46,7 +47,7 @@ export class UsageTracker {
     if (!this.filePath) return;
     try {
       fs.mkdirSync(path.dirname(this.filePath), { recursive: true, mode: 0o700 });
-      fs.writeFileSync(this.filePath, JSON.stringify({ stats: this.stats, updatedAt: new Date().toISOString() }, null, 2) + '\n', { mode: 0o600 });
+      fs.writeFileSync(this.filePath, JSON.stringify({ stats: this.stats, failovers: this.failovers, updatedAt: new Date().toISOString() }, null, 2) + '\n', { mode: 0o600 });
     } catch {
       /* best effort */
     }
@@ -130,6 +131,7 @@ export class UsageTracker {
   recordFailover({ profile, from, to, reason = 'usage limit' }) {
     this.failovers.push({ profile, from, to, reason, at: Date.now() });
     if (this.failovers.length > 25) this.failovers.shift();
+    this.save();
   }
 
   clearCooldowns() {

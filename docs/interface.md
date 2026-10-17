@@ -30,6 +30,24 @@ Run `cosmo` in any terminal. The transcript scrolls like normal terminal output,
 | `?` (empty input) | shortcuts |
 | Ctrl+C | interrupt · clear input · press twice to exit |
 
+## Tasks
+
+Durable work is visible without leaving the interface:
+
+| Command | Meaning |
+|---|---|
+| `/dashboard` | compact task tree with delegated children and recent activity |
+| `/task <id>` | task details, delegated work, and event history |
+| `/health` | provider availability, cooldowns, errors, and latency |
+| `/metrics` | task throughput, success rate, latency, and provider statistics |
+| `/tasks` | list unfinished tasks (`/tasks all` includes completed work) |
+| `/resume <id>` | continue an unfinished task |
+| `/cancel [id]` | stop the active or saved task |
+
+The dashboard is intentionally transcript-friendly: it prints a compact snapshot and leaves
+normal terminal scrollback, copy, and search intact. Delegated `/delegate` and `/council`
+work appears as child tasks under the parent task.
+
 ## Channels
 
 A channel is `profile/agent`. Each one has its own conversation: the interface passes the agent's resume/continue flag, so follow-up questions keep context. `/new` starts fresh.

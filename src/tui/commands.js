@@ -12,6 +12,7 @@ import { orbitMap } from './components/orbitMap.js';
 import { runDelegation, runCouncil, listOllamaModels, pickLocalModel } from '../orchestrator.js';
 import { loadSkills, loadRules, loadMcpServers, initCustomizations, syncAgentCustomizations, cosmoMdPath, COSMO_MD_TEMPLATE } from '../skills.js';
 import { REVIEW_GATES, agentProfile, buildProjectReviewPrompt, buildWorkLoopPrompt } from '../governance.js';
+import { renderDashboard, renderProviderHealth, renderProviderMetrics, renderTaskMetrics } from './components/dashboard.js';
 
 export const RESEARCH_PROMPT = (topic) =>
   `Research this topic on the web: ${topic}
@@ -22,6 +23,15 @@ Use your web search and fetch tools. Then write a markdown report with:
 - open questions or things that could not be verified
 - a "Sources" list at the end
 Prefer recent, primary sources and say clearly when something is uncertain.`;
+
+function providerRows(app) {
+  const profile = app.channels.current?.profile || Object.keys(app.config.profiles || {})[0] || 'default';
+  const recorded = new Map(app.usage.rows(profile).map((row) => [row.agent, row]));
+  return agentNames(app.config).map((agent) => ({
+    ...(recorded.get(agent) || { profile, agent, runs: 0, errors: 0, rateLimits: 0, costUsd: 0, durationMs: 0, throttled: false, cooldownSecs: 0 }),
+    installed: app.channels.installed(agent),
+  }));
+}
 
 export const ARTIFACT_PROMPT = (what) =>
   `Create the following as complete, ready-to-use file(s): ${what}
@@ -118,10 +128,60 @@ export function registerBuiltinCommands(app) {
           t.bold('Tasks'),
           ...tasks.slice(0, 20).map((task) => {
             const state = task.status === 'completed' ? t.green('done') : task.status === 'failed' ? t.red('failed') : t.yellow(task.status);
-            return `  ${state.padEnd ? state.padEnd(18) : state} ${t.dim(task.id)}  ${task.prompt.slice(0, 72)}`;
+            const child = task.parentTaskId ? '  ↳' : '';
+            const owner = task.assignedAgent ? ` @${task.assignedAgent}` : '';
+            return `  ${child}${state.padEnd ? state.padEnd(18) : state} ${t.dim(task.id)}${owner}  ${task.prompt.slice(0, 72)}`;
           }),
-          t.dim('  /resume <task-id> to continue unfinished work'),
+          t.dim('  /task <task-id> for details · /resume <task-id> to continue unfinished work'),
         ]);
+      },
+    },
+    {
+      name: 'dashboard',
+      description: 'Show task tree and provider dashboard',
+      run: () => app.print(renderDashboard({
+        tasks: app.tasks.list({ activeOnly: false }),
+        rows: providerRows(app),
+        failovers: app.usage.failovers || [],
+        t,
+        cols: app.screen.cols,
+      })),
+    },
+    {
+      name: 'health',
+      description: 'Show provider health',
+      run: () => app.print(renderProviderHealth(providerRows(app), { t, cols: app.screen.cols })),
+    },
+    {
+      name: 'metrics',
+      description: 'Show task and provider performance metrics',
+      run: () => app.print([
+        ...renderTaskMetrics(app.tasks.list({ activeOnly: false }), { t }),
+        '',
+        ...renderProviderMetrics(providerRows(app), { t, cols: app.screen.cols }),
+      ]),
+    },
+    {
+      name: 'task',
+      args: '<task-id>',
+      description: 'Show task details, delegated work, and event history',
+      complete: () => app.tasks.list({ activeOnly: false }).map((task) => ({ value: task.id, hint: task.prompt.slice(0, 60) })),
+      run: (args) => {
+        const taskId = (args || '').trim();
+        const task = app.tasks.get(taskId);
+        if (!task) throw new CosmoError(`Unknown task "${taskId}".`, { hint: 'Use /tasks to list saved tasks.' });
+        const children = app.tasks.children(task.id);
+        const lines = [
+          t.bold(task.id),
+          `  ${task.status} · ${task.phase}${task.assignedAgent ? ` · @${task.assignedAgent}` : ''}`,
+          `  ${task.prompt}`,
+          task.parentTaskId ? `  ${t.dim(`parent: ${task.parentTaskId}`)}` : '',
+          children.length ? t.bold('  Delegated work') : '',
+          ...children.map((child) => `  ${child.status.padEnd(11)} ${child.id} @${child.assignedAgent || '?'} ${child.prompt.slice(0, 72)}`),
+          t.bold('  Recent events'),
+          ...app.tasks.events(task.id, 8).map((event) => `  ${t.dim(event.timestamp)} ${event.type}`),
+        ].filter(Boolean);
+        app.print(lines);
       },
     },
     {

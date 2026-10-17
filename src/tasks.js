@@ -22,6 +22,19 @@ function writeJson(file, value) {
   fs.renameSync(tmp, file);
 }
 
+function readEvents(file) {
+  let lines;
+  try {
+    lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    throw err;
+  }
+  return lines.map((line) => {
+    try { return JSON.parse(line); } catch { return null; }
+  });
+}
+
 /**
  * Small durable task journal. It deliberately uses JSON and built-in Node APIs so
  * the task state works in the same portable, zero-dependency environments as Cosmo.
@@ -32,6 +45,13 @@ export class TaskStore {
     this.tasksFile = path.join(root, 'tasks.json');
     this.eventsFile = path.join(root, 'events.jsonl');
     this.tasks = safeRead(this.tasksFile, {});
+    this.eventsByTask = new Map();
+    for (const event of readEvents(this.eventsFile)) {
+      const taskId = event?.taskId;
+      const events = this.eventsByTask.get(taskId);
+      if (events) events.push(event);
+      else this.eventsByTask.set(taskId, [event]);
+    }
   }
 
   create(input) {
@@ -49,6 +69,9 @@ export class TaskStore {
       retryAt: null,
       checkpoint: null,
       lastError: null,
+      parentTaskId: input.parentTaskId || null,
+      assignedAgent: input.assignedAgent || null,
+      origin: input.origin || 'user',
     };
     this.tasks[task.id] = task;
     this.save();
@@ -58,6 +81,10 @@ export class TaskStore {
 
   get(taskId) {
     return this.tasks[taskId] || null;
+  }
+
+  children(taskId) {
+    return this.list({ activeOnly: false }).filter((task) => task.parentTaskId === taskId);
   }
 
   list({ activeOnly = false } = {}) {
@@ -81,27 +108,15 @@ export class TaskStore {
 
   event(taskId, type, data = {}) {
     fs.mkdirSync(path.dirname(this.eventsFile), { recursive: true, mode: 0o700 });
-    fs.appendFileSync(
-      this.eventsFile,
-      JSON.stringify({ id: id(), taskId, type, timestamp: new Date().toISOString(), ...data }) + '\n',
-      { mode: 0o600 },
-    );
+    const event = { id: id(), taskId, type, timestamp: new Date().toISOString(), ...data };
+    fs.appendFileSync(this.eventsFile, JSON.stringify(event) + '\n', { mode: 0o600 });
+    const events = this.eventsByTask.get(event.taskId);
+    if (events) events.push(event);
+    else this.eventsByTask.set(event.taskId, [event]);
   }
 
   events(taskId, limit = 100) {
-    let lines;
-    try {
-      lines = fs.readFileSync(this.eventsFile, 'utf8').split('\n').filter(Boolean);
-    } catch (err) {
-      if (err.code === 'ENOENT') return [];
-      throw err;
-    }
-    return lines
-      .map((line) => {
-        try { return JSON.parse(line); } catch { return null; }
-      })
-      .filter((event) => event?.taskId === taskId)
-      .slice(-limit);
+    return (this.eventsByTask.get(taskId) || []).slice(-limit);
   }
 
   recover() {
