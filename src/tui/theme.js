@@ -1,4 +1,6 @@
-const enabled = () => Boolean(process.stdout.isTTY) && !('NO_COLOR' in process.env);
+import { colorEnabled } from '../ui.js';
+
+const enabled = () => colorEnabled(process.stdout);
 const wrap = (open, close) => (s) => (enabled() ? `\x1b[${open}m${s}\x1b[${close}m` : String(s));
 
 /** Colors for the interactive UI (stdout). */
@@ -25,7 +27,7 @@ export const t = {
 export function pickGlyphs(env = process.env) {
   const locale = env.LC_ALL || env.LC_CTYPE || env.LANG || '';
   const ascii = env.COSMO_ASCII === '1' || env.TERM === 'linux' || (locale !== '' && !/utf-?8/i.test(locale));
-  return ascii ? { star: '*', sat: 'o', ascii: true } : { star: '✦', sat: '◉', ascii: false };
+  return ascii ? { star: '*', sat: 'o', idle: '+', ascii: true } : { star: '✦', sat: '◉', idle: '✧', ascii: false };
 }
 
 /** COSMO_REDUCED_MOTION=1 keeps the spinner still. */

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+- `/channels` draws each profile as a small orbit: the agents are its satellites, the current channel is the bright one.
+- Emoji and combined characters are measured correctly (✅, ❤️, 👨‍👩‍👧, flags), so the input box and cursor stay aligned; editing never splits one.
+- Ctrl+Z puts cosmo in the background (`fg` brings it back); Ctrl+J and `\` + Enter insert a new line; Ctrl+L keeps the scrollback.
+- Esc tells you that a second Esc force-stops the agent.
+- Colors follow `FORCE_COLOR`, `NO_COLOR` (non-empty, per no-color.org) and `TERM=dumb`, the same way in the interface and on the command line.
+- If cosmo crashes, the terminal is restored and a running agent is stopped.
+
 ## 0.3.0
 - New logo: a star with an orbiting satellite (3 lines, 1 line on narrow terminals and after /clear), and an orbit spinner while an agent works. ASCII fallback (`COSMO_ASCII=1`, non-UTF-8 locales) and `COSMO_REDUCED_MOTION=1`.
 - Fixed: Esc now stops the agent and every tool it started; a run can no longer hang on "Interrupting…".

@@ -21,11 +21,12 @@ Run `cosmo` in any terminal. The transcript scrolls like normal terminal output,
 | ↑ ↓ | move in menu, else history |
 | Shift+Tab | toggle ask ↔ auto mode |
 | Ctrl+O | next installed agent in this profile |
-| Esc | interrupt the running agent · close menu · clear input |
-| Alt+Enter | new line (pasted multi-line text also works) |
+| Esc | interrupt the running agent (twice: force-stop) · close menu · clear input |
+| Alt+Enter, Ctrl+J, `\` + Enter | new line (pasted multi-line text also works) |
 | Ctrl+A / Ctrl+E | start / end of line |
 | Ctrl+U / Ctrl+K / Ctrl+W | delete to start / to end / previous word |
-| Ctrl+L | clear screen |
+| Ctrl+L | clear screen (scrollback stays) |
+| Ctrl+Z | put cosmo in the background; `fg` brings it back |
 | `?` (empty input) | shortcuts |
 | Ctrl+C | interrupt · clear input · press twice to exit |
 
@@ -92,7 +93,8 @@ The mark is a star (cosmo) with a satellite (the agent) in orbit. While an agent
 |---|---|
 | `COSMO_ASCII=1` | ASCII-only logo and spinner (also automatic when the locale isn't UTF-8 or `TERM=linux`) |
 | `COSMO_REDUCED_MOTION=1` | the spinner stands still |
-| `NO_COLOR` | no colors |
+| `NO_COLOR=1` | no colors |
+| `FORCE_COLOR=1` | colors even when output isn't a terminal |
 
 ## Testing
 

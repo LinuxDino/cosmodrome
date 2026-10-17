@@ -7,6 +7,7 @@ import { which } from '../system.js';
 import { CosmoError } from '../ui.js';
 import { listArtifacts, saveArtifact, zipArtifacts, artifactsRoot } from '../artifacts.js';
 import { createMarkdownState, renderMarkdownLine } from './markdown.js';
+import { orbitMap } from './components/orbitMap.js';
 
 export const RESEARCH_PROMPT = (topic) =>
   `Research this topic on the web: ${topic}
@@ -88,6 +89,20 @@ export function registerBuiltinCommands(app) {
       run: () => {
         const rows = app.channels.all();
         if (!rows.length) return app.print(`  ${t.yellow('!')} No profiles yet - /init`);
+        if (app.screen.cols >= 50) {
+          const lines = [];
+          for (const profile of [...new Set(rows.map((r) => r.profile))]) {
+            const mine = rows.filter((r) => r.profile === profile);
+            const agents = mine
+              .filter((r) => r.installed)
+              .sort((a, b) => (b.id === app.channels.id) - (a.id === app.channels.id) || b.isDefault - a.isDefault)
+              .map((r) => ({ name: r.agent, current: r.id === app.channels.id, isDefault: r.isDefault }));
+            const missing = mine.filter((r) => !r.installed).map((r) => r.agent);
+            lines.push(...orbitMap({ profile, agents, missing, t, glyphs: app.glyphs }), '');
+          }
+          lines.push(t.dim('  switch with #profile/agent, e.g. #work/copilot'));
+          return app.print(lines);
+        }
         app.print(
           rows.map((ch) => {
             const mark = ch.id === app.channels.id ? t.magenta('●') : ' ';
