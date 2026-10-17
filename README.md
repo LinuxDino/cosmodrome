@@ -34,6 +34,8 @@ npm install -g cosmodrome      # macOS + Linux (Windows: WSL), Node >= 18.17
 cosmo doctor                   # what's installed, what's missing
 ```
 
+Update with `npm install -g cosmodrome@latest`. The same releases are also on GitHub Packages as `@linuxdino/cosmodrome` (see [docs/github-setup.md](docs/github-setup.md#github-packages)).
+
 Then install the agents you want (any subset):
 
 | Agent | Install |
