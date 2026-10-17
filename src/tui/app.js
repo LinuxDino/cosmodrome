@@ -10,7 +10,7 @@ import { statusLine } from './components/statusLine.js';
 import { spinnerLine, pickVerb } from './components/spinner.js';
 import { createMarkdownState, renderMarkdownLine } from './markdown.js';
 import { registerBuiltinCommands } from './commands.js';
-import { ChannelManager } from './channels.js';
+import { ChannelManager, recordRun } from './channels.js';
 import { runProcess } from './runner.js';
 import { loadModules } from './modules.js';
 import { loadConfig, emptyConfig } from '../config.js';
@@ -595,6 +595,7 @@ export class App {
     if (!agent) throw new CosmoError(`Unknown agent "${agentName}".`);
     const bin = this.cli.requireBin(agent, this.ctx);
     const session = this.channels.session(ch.profile, agent.name);
+    if (session.moved) this.print(t.dim(`  new conversation for ${tildify(this.state.cwd, this.ctx.paths.home)} (agents keep conversations per folder)`));
     const args = buildHeadless(agent, prompt, { ...session, mode: this.state.mode });
     if (!args) {
       throw new CosmoError(`${agent.label} has no one-shot mode configured.`, { hint: 'Use /native, or add "headless" to the agent in cosmo config edit.' });
@@ -624,8 +625,7 @@ export class App {
     const res = await handle.promise;
     this.endRun();
 
-    session.continued = true;
-    if (res.sessionId) session.resumeId = res.sessionId;
+    recordRun(session, res);
     const secs = Math.round((Date.now() - startedAt) / 1000);
     const meta = [agent.name];
     if (res.result?.duration_ms) meta.push(`${Math.round(res.result.duration_ms / 1000)}s`);

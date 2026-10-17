@@ -19,12 +19,15 @@ export const BUILTIN_AGENTS = {
     note: 'Isolated via CLAUDE_CONFIG_DIR. On macOS credentials live in the Keychain - check /status shows the right account per profile.',
     headless: {
       stream: 'claude-json',
+      // The prompt goes last, after "--": a prompt starting with "-" would otherwise be
+      // read as an option, and --allowedTools takes a variadic list.
       build: (prompt, s) => [
-        '-p', prompt,
+        '-p',
         '--output-format', 'stream-json', '--verbose',
         '--allowedTools', 'Read,Grep,Glob,WebSearch,WebFetch',
         ...(s.resumeId ? ['--resume', s.resumeId] : s.continued ? ['--continue'] : []),
         ...(s.mode === 'auto' ? ['--permission-mode', 'acceptEdits'] : []),
+        '--', prompt,
       ],
     },
   },

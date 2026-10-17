@@ -10,13 +10,16 @@ import { crc32, createZip } from '../src/zip.js';
 import { promptBox } from '../src/tui/components/promptBox.js';
 import { renderMarkdownLine, createMarkdownState } from '../src/tui/markdown.js';
 import { width, truncate } from '../src/tui/screen.js';
+import { ChannelManager, recordRun } from '../src/tui/channels.js';
 
 const plain = new Proxy({}, { get: () => (s) => String(s) });
 
 test('headless args per agent and mode', () => {
   const claude = getAgent('claude');
   const first = buildHeadless(claude, 'hi', { mode: 'ask' });
-  assert.deepEqual(first.slice(0, 2), ['-p', 'hi']);
+  assert.equal(first[0], '-p');
+  assert.deepEqual(first.slice(-2), ['--', 'hi']);
+  assert.deepEqual(buildHeadless(claude, '- list files', {}).slice(-2), ['--', '- list files']);
   assert.ok(first.includes('stream-json'));
   assert.ok(!first.includes('--permission-mode'));
   const next = buildHeadless(claude, 'again', { mode: 'auto', resumeId: 'abc', continued: true });
@@ -68,4 +71,20 @@ test('markdown styling and truncation', () => {
   assert.equal(renderMarkdownLine('- not a bullet', st, plain), '│ - not a bullet');
   assert.equal(renderMarkdownLine('```', st, plain), '└─');
   assert.equal(width(truncate('\x1b[35mhello world\x1b[39m', 6)), 6);
+});
+
+test('channel sessions continue only after a good run and only in the same folder', () => {
+  const app = { state: { cwd: '/a' } };
+  const ch = new ChannelManager(app);
+  const s = ch.session('work', 'claude');
+  assert.equal(recordRun(s, { code: 1, text: '', sessionId: 'x', cancelled: false }), false);
+  assert.equal(s.continued, false);
+  assert.equal(s.resumeId, null);
+  recordRun(s, { code: 0, text: 'hi', sessionId: 'abc', cancelled: false });
+  assert.equal(ch.session('work', 'claude').resumeId, 'abc');
+  app.state.cwd = '/b';
+  const moved = ch.session('work', 'claude');
+  assert.equal(moved.continued, false);
+  assert.equal(moved.moved, true);
+  assert.equal(ch.session('work', 'claude'), moved);
 });

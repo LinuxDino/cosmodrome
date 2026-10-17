@@ -119,10 +119,18 @@ export class ChannelManager {
     this.switchTo({ profile: this.current.profile, agent: names[(i + 1) % names.length] });
   }
 
-  session(profile = this.current?.profile, agent = this.current?.agent) {
+  /**
+   * Conversation state of a channel in a folder. Agents store conversations per folder
+   * (Claude can't --resume a session from another folder), so a new folder starts fresh;
+   * `moved` tells the caller that an earlier conversation was left behind.
+   */
+  session(profile = this.current?.profile, agent = this.current?.agent, cwd = this.app.state.cwd) {
     const key = `${profile}/${agent}`;
-    if (!this.sessions.has(key)) this.sessions.set(key, { continued: false, resumeId: null });
-    return this.sessions.get(key);
+    const old = this.sessions.get(key);
+    if (old && old.cwd === cwd) return old;
+    const fresh = { continued: false, resumeId: null, cwd, moved: Boolean(old?.continued) };
+    this.sessions.set(key, fresh);
+    return fresh;
   }
 
   resetSession() {
@@ -132,4 +140,18 @@ export class ChannelManager {
   describe() {
     return { id: this.id, ghUser: this.ghUser, cwd: tildify(this.app.state.cwd, this.app.ctx.paths.home) };
   }
+}
+
+/**
+ * Remember a finished run so the next message continues it. A failed run (not signed in,
+ * bad flag, ...) leaves the session untouched, so we never --continue/--resume a
+ * conversation that was never created.
+ */
+export function recordRun(session, res) {
+  session.moved = false;
+  const usable = res.code === 0 || (res.cancelled && res.text.trim());
+  if (!usable) return false;
+  session.continued = true;
+  if (res.sessionId) session.resumeId = res.sessionId;
+  return true;
 }
