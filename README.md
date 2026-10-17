@@ -4,7 +4,7 @@
 
 ```
   .-'''''-.
-.'    ✦    '.◉    cosmodrome v0.3.0
+.'    ✦    '.◉    cosmodrome v0.5.0
  '-._____.-'      ~/work/api
 / commands · # channel · @ other agent · ! shell · ? keys
 
@@ -34,6 +34,8 @@ npm install -g cosmodrome      # macOS + Linux (Windows: WSL), Node >= 18.17
 cosmo doctor                   # what's installed, what's missing
 ```
 
+Update with `npm install -g cosmodrome@latest`. The same releases are also on GitHub Packages as `@linuxdino/cosmodrome` (see [docs/github-setup.md](docs/github-setup.md#github-packages)).
+
 Then install the agents you want (any subset):
 
 | Agent | Install |
@@ -43,6 +45,7 @@ Then install the agents you want (any subset):
 | OpenCode | `npm install -g opencode-ai` |
 | OpenAI Codex CLI | `npm install -g @openai/codex` |
 | Antigravity CLI (Google) | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` |
+| Ollama (local, optional) | `brew install ollama && ollama pull qwen3:8b` |
 
 You also need `git` ≥ 2.32, plus `gh` (GitHub CLI) for per-profile GitHub logins. `tmux` is optional and only needed for `/fleet`.
 
@@ -66,7 +69,7 @@ hello!                # chat with the current channel
 | `@codex review this` | Ask another agent of the same profile once |
 | `!git status` | Shell command with the profile's GitHub + git identity |
 
-**Keys:** Enter sends · Tab completes · ↑↓ history/menu · Shift+Tab toggles ask/auto mode · Ctrl+O next agent · Esc interrupts · Ctrl+L clears · Alt+Enter new line · Ctrl+C twice exits.
+**Keys:** Enter sends · Tab completes · ↑↓ history/menu · Shift+Tab toggles ask/auto mode · Ctrl+O next agent · Esc interrupts · Ctrl+L clears · Alt+Enter or Ctrl+J new line · Ctrl+Z background · Ctrl+C twice exits.
 
 **Modes:** *ask* (default) lets the agent read files and search the web, with no edits. *auto* lets it edit files in the current folder. For anything bigger, `/native` opens the agent's full interface and brings you back here when you exit.
 
@@ -87,6 +90,13 @@ hello!                # chat with the current channel
 | `/init`, `/profile …`, `/status`, `/doctor`, `/agents` | Setup and checks |
 | `/shell` | Interactive shell with the profile identity |
 | `/modules` | Your custom commands |
+| `/model [agent] [model]` | Model per agent for this profile (`/model claude opus`, `/model copilot auto`) |
+| `/project [init]` | This project's `COSMO.md` |
+| `/router [on\|off\|model]` | Local Ollama model plans each message and hands parts to the right agents |
+| `/delegate <task>` · `/council <question>` | Split a task across agents · ask several agents in parallel and merge the answers |
+| `/usage` | Runs, cost, usage-limit cooldowns and automatic switches per agent |
+| `/skills`, `/mcp` | Shared rules, skills and MCP servers for all agents (`init`, `sync`) |
+| `/preview <file\|#n>` | Preview card for a file or artifact |
 | `/help`, `/clear`, `/exit` | |
 
 Full guide: [docs/interface.md](docs/interface.md).
@@ -94,6 +104,10 @@ Full guide: [docs/interface.md](docs/interface.md).
 ### Artifacts
 
 Answers from `/artifact`, `/research` or `/save` become folders. Each one holds the full answer plus every code block as a real file (```` ```README.md ```` → `README.md`). Inside a git repo they go to `.cosmo/artifacts/` (git-ignored automatically); elsewhere they go to the cosmodrome data folder. `/zip all` packs everything into one zip.
+
+### COSMO.md
+
+Put a `COSMO.md` in a project's root (`/project init` creates one): rules, context and "which agent for what". Every agent gets it before each run - Claude, Copilot, agy, Codex, OpenCode and the local router - in addition to the files each one reads itself (`CLAUDE.md`, `AGENTS.md`). This repo has [its own](COSMO.md).
 
 ### Modules
 

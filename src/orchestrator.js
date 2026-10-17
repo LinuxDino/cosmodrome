@@ -43,14 +43,18 @@ export function pickLocalModel(installedModels = [], config = {}, env = process.
   return installedModels[0];
 }
 
+/** Most subagents one answer may start; the tags can also come from text an agent merely read. */
+export const MAX_SUBAGENTS = 4;
+
 /**
  * Parse `<cosmo:subagent agent="claude" mode="ask">prompt</cosmo:subagent>` blocks from AI output.
+ * The mode is only a request: the app never runs a subagent above the user's own mode.
  */
-export function parseSubagentCalls(text) {
+export function parseSubagentCalls(text, max = MAX_SUBAGENTS) {
   const calls = [];
   const re = /<cosmo:subagent\s+([^>]*)>([\s\S]*?)<\/cosmo:subagent>/gi;
   let m;
-  while ((m = re.exec(String(text))) !== null) {
+  while ((m = re.exec(String(text))) !== null && calls.length < max) {
     const attrs = m[1] || '';
     const prompt = (m[2] || '').trim();
     const agentMatch = attrs.match(/agent=["']?([a-zA-Z0-9_-]+)["']?/i);
@@ -76,6 +80,45 @@ export function parseCosmoToolTag(line) {
   const name = attrs.match(/name=["']([^"']+)["']/i)?.[1] || 'Step';
   const detail = attrs.match(/detail=["']([^"']+)["']/i)?.[1] || '';
   return { name, detail };
+}
+
+/**
+ * Streaming filter that hides <cosmo:subagent>…</cosmo:subagent> blocks (also across lines and
+ * chunks): they are instructions for cosmo, not text for the user. Returns null for a chunk
+ * that was only tags.
+ */
+export function createSubagentTagFilter() {
+  let inside = false;
+  return (chunk) => {
+    const kept = [];
+    for (let line of String(chunk).split('\n')) {
+      let out = '';
+      let hidden = false;
+      while (line) {
+        if (inside) {
+          const end = line.search(/<\/cosmo:subagent>/i);
+          hidden = true;
+          if (end < 0) {
+            line = '';
+            break;
+          }
+          inside = false;
+          line = line.slice(end + '</cosmo:subagent>'.length);
+        } else {
+          const start = line.search(/<cosmo:subagent[\s>]/i);
+          if (start < 0) {
+            out += line;
+            break;
+          }
+          out += line.slice(0, start);
+          inside = true;
+          line = line.slice(start).replace(/^<cosmo:subagent[^>]*>/i, '');
+        }
+      }
+      if (!(hidden && !out.trim())) kept.push(out);
+    }
+    return kept.length ? kept.join('\n') : null;
+  };
 }
 
 export function stripCosmoTags(text) {

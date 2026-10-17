@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.0
+- New: `COSMO.md` - one instructions file per project that every agent gets (Claude, Copilot, agy, Codex, OpenCode, the router). `/project init` creates it; this repo has its own.
+- New: model per agent and profile - `/model claude opus`, `/model copilot auto`, or `profiles.<name>.agents.<agent>.model` in the config. Used in the interface and in native launches.
+- Copilot CLI: flags checked against 1.0.98. Ask mode now uses Copilot's real permission patterns (`--deny-tool=write --deny-tool=shell`); the old `view/glob/grep` patterns don't exist. Copilot gets the shared instructions via `copilot-instructions.md` and the MCP servers via `--additional-mcp-config`.
+- New: local orchestrator with Ollama. `@ollama` runs a local model; `/router` lets it plan each message and hand parts to other agents; `/delegate` and `/council` split a task or ask several agents in parallel and merge the answers.
+- New: automatic switch to another installed agent when one hits a usage limit, with a cooldown; `/usage` shows runs, cost, cooldowns and switches.
+- New: shared rules, skills and MCP servers for all agents (`/skills`, `/mcp`), a live tool line under the spinner, clickable file links and `/preview` cards.
+- Subagents never get more rights than you (ask mode stays read-only) and one answer starts at most 4.
+- Agent sync only edits cosmo's own section of `CLAUDE.md`/`AGENTS.md`, never touches Claude's `.claude.json` (MCP goes through `--mcp-config`), leaves unreadable config files alone, and keeps skill names to safe folder names.
+- Fixed: a normal answer that mentions rate limits no longer counts as a usage limit; `@ollama` uses an installed model instead of a fixed default; plan tags no longer show in answers.
+- Restored the 0.4.0 changes that the orchestrator merge had overwritten.
+
+## 0.4.0
+- `/channels` draws each profile as a small orbit: the agents are its satellites, the current channel is the bright one.
+- cosmo starts on a clean window at the top; what was on screen moves into the scrollback. `COSMO_NO_CLEAR=1` keeps the old behaviour.
+- Fixed: `/init` could get stuck: a half-finished setup said "Already set up" with no profiles. It now continues with the first profile.
+- Profile names are forgiving: "Private" becomes `private`, "My Work" becomes `my-work`; an invalid name asks again instead of stopping. "n"/"no" ends the setup.
+- Hints inside the interface name slash commands (`/login`, `/profile add`) instead of shell commands.
+- Emoji and combined characters are measured correctly (✅, ❤️, 👨‍👩‍👧, flags), so the input box and cursor stay aligned; editing never splits one.
+- Ctrl+Z puts cosmo in the background (`fg` brings it back); Ctrl+J and `\` + Enter insert a new line; Ctrl+L keeps the scrollback.
+- Esc tells you that a second Esc force-stops the agent.
+- Colors follow `FORCE_COLOR`, `NO_COLOR` (non-empty, per no-color.org) and `TERM=dumb`, the same way in the interface and on the command line.
+- If cosmo crashes, the terminal is restored and a running agent is stopped.
+- Releases can be started from GitHub (Actions → Release → Run workflow); the workflow publishes and tags the version itself.
+
 ## 0.3.0
 - New logo: a star with an orbiting satellite (3 lines, 1 line on narrow terminals and after /clear), and an orbit spinner while an agent works. ASCII fallback (`COSMO_ASCII=1`, non-UTF-8 locales) and `COSMO_REDUCED_MOTION=1`.
 - Fixed: Esc now stops the agent and every tool it started; a run can no longer hang on "Interrupting…".

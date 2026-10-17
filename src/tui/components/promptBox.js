@@ -1,16 +1,16 @@
-import { charWidth, width, truncate } from '../screen.js';
+import { clusterWidth, width, truncate } from '../screen.js';
 
 /** Bordered input box like Claude Code's. Returns lines and the cursor position inside them. */
 export function promptBox({ chars, cursor, cols, t, placeholder = '', mode = 'ask', maxVisible = 8 }) {
   const MAX_VISIBLE = Math.max(1, maxVisible);
   const w = Math.max(8, cols - 1);
   const inner = w - 6;
-  const shown = chars.map((ch) => (ch === '\n' ? '↵' : ch));
+  const shown = chars.map((ch) => (ch === '\n' ? '↵' : ch === '\t' ? ' ' : ch));
 
   const chunks = [];
   let cur = { start: 0, text: '', w: 0 };
   shown.forEach((ch, i) => {
-    const cw = charWidth(ch.codePointAt(0));
+    const cw = clusterWidth(ch);
     if (cur.w + cw > inner) {
       chunks.push(cur);
       cur = { start: i, text: '', w: 0 };

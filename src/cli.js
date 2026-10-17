@@ -3,9 +3,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvePaths, expandHome, tildify } from './paths.js';
 import {
-  loadConfig, requireConfig, saveConfig, emptyConfig, validateProfileName, getProfile, assertSafeValue,
+  loadConfig, requireConfig, saveConfig, emptyConfig, validateProfileName, normalizeProfileName, getProfile, assertSafeValue,
 } from './config.js';
-import { getAgent, agentNames, keychainAdvice } from './agents.js';
+import { getAgent, agentNames, keychainAdvice, agentModel } from './agents.js';
 import { planProfileEnv, applyPlan, envDiff } from './env.js';
 import { which, runInteractive, capture, shq, gitVersion, versionAtLeast, dirHasEntries } from './system.js';
 import { readGhUser } from './github.js';
@@ -97,7 +97,7 @@ function plan(config, profileName, agent, ctx) {
   });
   applyPlan(p);
   if (agent && p.agentDir) {
-    syncAgentCustomizations({ agent, agentDir: p.agentDir, paths: ctx.paths, cwd: ctx.cwd });
+    p.mcpConfig = syncAgentCustomizations({ agent, agentDir: p.agentDir, paths: ctx.paths, cwd: ctx.cwd }).mcpConfig || null;
   }
   return p;
 }
@@ -133,7 +133,8 @@ async function launchCmd(args, ctx) {
   const bin = requireBin(agent, ctx);
   const p = plan(config, name, agent, ctx);
   if (!opts.quiet) banner(agent.label, config, name, ctx, cwd, reason);
-  const agentArgs = [...(agent.args || []), ...(profile.agents?.[agent.name]?.args || []), ...opts.rest];
+  const launchArgs = agent.launchArgs ? agent.launchArgs({ agentModel: agentModel(config, name, agent.name), mcpConfig: p.mcpConfig }) : [];
+  const agentArgs = [...launchArgs, ...(agent.args || []), ...(profile.agents?.[agent.name]?.args || []), ...opts.rest];
   return runInteractive(bin, agentArgs, { env: p.env, cwd });
 }
 
@@ -370,9 +371,28 @@ function applyProfileFlags(profile, flags, config) {
   return profile;
 }
 
+/** Ask until the answer is a usable new profile name ("Private" becomes "private"). Empty = '' when optional. */
+async function askProfileName(question, def, config, { optional = false } = {}) {
+  for (;;) {
+    const raw = await ask(question, def);
+    if (optional && (!raw || /^(n|no|nein|none|done)$/i.test(raw))) return '';
+    const name = normalizeProfileName(raw);
+    try {
+      validateProfileName(name);
+      if (config.profiles[name]) throw new CosmoError(`Profile "${name}" already exists.`);
+    } catch (err) {
+      fail(err.message);
+      if (err.hint) log(c.dim(`  ${err.hint}`));
+      continue;
+    }
+    if (name !== raw) info(`Using "${name}".`);
+    return name;
+  }
+}
+
 async function profileWizard(config, ctx, presetName) {
   let name = presetName;
-  if (!name) name = await ask('Profile name (e.g. work, private)');
+  if (!name) name = await askProfileName('Profile name (e.g. work, private)', '', config);
   validateProfileName(name);
   if (config.profiles[name]) throw new CosmoError(`Profile "${name}" already exists.`);
   const globalGit = (key) => {
@@ -412,7 +432,7 @@ async function profileCmd(args, ctx) {
   const config = loadConfig(ctx.paths) || emptyConfig();
 
   if (sub === 'add') {
-    let name = pos[0];
+    let name = pos[0] === undefined ? undefined : normalizeProfileName(pos[0]);
     let wizardFlags = {};
     const needsWizard = !name || (flags.gitEmail === undefined && flags.agent === undefined);
     if (needsWizard && ctx.interactive) ({ name, flags: wizardFlags } = await profileWizard(config, ctx, name));
@@ -428,7 +448,7 @@ async function profileCmd(args, ctx) {
     if (ctx.interactive && which('gh', ctx.env.PATH) && (await confirm(`Sign in to GitHub for "${name}" now?`, true))) {
       await ghLogin(config, name, ctx, true);
     } else {
-      info(`Next: cosmo login ${name}   then   cosmo ${name}`);
+      info(ctx.inTui ? `Next: /login to sign in to GitHub, then talk to #${name}` : `Next: cosmo login ${name}   then   cosmo ${name}`);
     }
     return 0;
   }
@@ -482,25 +502,33 @@ async function profileCmd(args, ctx) {
 
 async function initCmd(args, ctx) {
   const existing = loadConfig(ctx.paths);
-  if (existing) {
+  // A config without profiles (e.g. an earlier /init stopped half way) is not "set up" yet.
+  if (existing && Object.keys(existing.profiles).length) {
     info(`Already set up: ${tildify(ctx.paths.configFile, ctx.paths.home)}`);
-    log(c.dim('   cosmo status · cosmo profile add <name>'));
+    log(c.dim(ctx.inTui ? '   /status · /profile add <name>' : '   cosmo status · cosmo profile add <name>'));
     return 0;
   }
-  saveConfig(ctx.paths, emptyConfig());
-  log(`${c.magenta('🚀')} ${c.bold('Welcome to cosmodrome')} - one launch pad, separate accounts per profile.`);
-  ok(`Created ${tildify(ctx.paths.configFile, ctx.paths.home)}`);
+  if (!existing) {
+    saveConfig(ctx.paths, emptyConfig());
+    log(`${c.magenta('🚀')} ${c.bold('Welcome to cosmodrome')} - one launch pad, separate accounts per profile.`);
+    ok(`Created ${tildify(ctx.paths.configFile, ctx.paths.home)}`);
+  } else {
+    info('No profiles yet - let\'s create the first one.');
+  }
   if (!ctx.interactive) {
     info('Next: cosmo profile add work --agent claude --git-email you@company.com');
     return 0;
   }
   for (let first = true; ; first = false) {
-    const name = await ask(first ? 'First profile name' : 'Another profile? (empty to finish)', first ? 'work' : '');
+    const config = loadConfig(ctx.paths) || emptyConfig();
+    const name = await askProfileName(first ? 'First profile name' : 'Another profile? (empty to finish)', first ? 'work' : '', config, { optional: !first });
     if (!name) break;
     await profileCmd(['add', name], ctx);
   }
   log('');
-  info('All set. Launch with: cosmo <profile> [agent]   ·   several agents: cosmo fleet <profile> claude copilot');
+  info(ctx.inTui
+    ? 'All set. Type a message to talk to your agent, or /channels to see all channels.'
+    : 'All set. Launch with: cosmo   ·   or directly: cosmo <profile> [agent]');
   return 0;
 }
 

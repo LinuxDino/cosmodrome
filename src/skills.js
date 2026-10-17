@@ -2,6 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 /**
+ * Skill names become folder names when skills are copied to an agent, and repo skills come
+ * from whatever repository is open: keep them to one plain path segment.
+ */
+export function safeSkillName(name) {
+  const s = String(name || '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[.-]+/, '').slice(0, 64);
+  return s || 'skill';
+}
+
+/**
  * Parse YAML-like frontmatter (name, description) from a SKILL.md file without external dependencies.
  */
 export function parseSkillFile(content, fallbackName = 'skill') {
@@ -9,7 +18,7 @@ export function parseSkillFile(content, fallbackName = 'skill') {
   const m = s.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!m) {
     const firstLine = s.split('\n').find((l) => l.trim() && !l.startsWith('#')) || '';
-    return { name: fallbackName, description: firstLine.trim().slice(0, 120), body: s.trim() };
+    return { name: safeSkillName(fallbackName), description: firstLine.trim().slice(0, 120), body: s.trim() };
   }
   const front = m[1];
   const body = m[2].trim();
@@ -18,7 +27,7 @@ export function parseSkillFile(content, fallbackName = 'skill') {
     return hit ? hit[1].trim() : '';
   };
   return {
-    name: get('name') || fallbackName,
+    name: safeSkillName(get('name') || fallbackName),
     description: get('description') || body.split('\n')[0]?.slice(0, 120) || '',
     body,
   };
@@ -79,6 +88,34 @@ export function loadSkills(paths, cwd) {
   return [...byName.values()];
 }
 
+/** Where a project's COSMO.md lives: the repo root, or the folder itself outside a repo. */
+export function cosmoMdPath(cwd) {
+  if (!cwd) return null;
+  return path.join(findRepoRoot(cwd) || path.resolve(cwd), 'COSMO.md');
+}
+
+export const COSMO_MD_TEMPLATE = `# COSMO.md
+
+Instructions for every agent working in this project through cosmodrome
+(Claude, Copilot, agy, Codex, OpenCode and the local router).
+
+## Project
+- What this project is, in one or two sentences.
+- How to run it and how to test it.
+
+## Rules
+- Run the tests before calling anything done.
+- Keep changes small and focused.
+
+## Which agent for what
+- @claude: larger changes across files, design, reviews.
+- @copilot: GitHub work - issues, pull requests, Actions.
+- @agy: web research, docs, broad questions about the repo.
+
+## Git
+- Work on a branch, commit with clear messages, open a pull request.
+`;
+
 /**
  * Load shared rules from global (~/.config/cosmodrome/rules.md) and workspace (<repo>/.cosmo/rules.md).
  */
@@ -89,6 +126,11 @@ export function loadRules(paths, cwd) {
   if (g?.trim()) out.push({ scope: 'global', path: globalRules, content: g.trim() });
 
   const repo = cwd ? findRepoRoot(cwd) : null;
+  // COSMO.md in the project root (or the current folder outside a repo): one instructions
+  // file that every agent gets, whatever its own file is called.
+  const projectFile = cosmoMdPath(cwd);
+  const project = projectFile ? readIfExists(projectFile) : null;
+  if (project?.trim()) out.push({ scope: 'project', path: projectFile, content: project.trim() });
   if (repo) {
     const repoRules = path.join(repo, '.cosmo', 'rules.md');
     const r = readIfExists(repoRules);
@@ -173,16 +215,62 @@ export function initCustomizations(paths) {
   return created;
 }
 
-function mergeJsonFile(filePath, patchFn) {
+/**
+ * Merge into a JSON config file that also belongs to the agent. A file that exists but can't
+ * be parsed is left alone (returns false) - writing {} over it would lose the user's settings.
+ */
+export function mergeJsonFile(filePath, patchFn) {
   let current = {};
-  try {
-    current = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch {
-    current = {};
+  const raw = readIfExists(filePath);
+  if (raw != null) {
+    try {
+      current = JSON.parse(raw);
+    } catch {
+      return false;
+    }
   }
   const next = patchFn(current);
   fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
   fs.writeFileSync(filePath, JSON.stringify(next, null, 2) + '\n', { mode: 0o600 });
+  return true;
+}
+
+/** cosmo's own MCP file in an agent folder, handed to the agent with a flag. */
+function writeOwnMcpFile(agentDir, mcpServers, synced) {
+  const file = path.join(agentDir, 'cosmodrome-mcp.json');
+  const content = JSON.stringify({ mcpServers }, null, 2) + '\n';
+  if (readIfExists(file) !== content) {
+    fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, content, { mode: 0o600 });
+    synced.push(file);
+  }
+  return file;
+}
+
+const BLOCK_START = '<!-- cosmodrome:start (managed by cosmodrome - edits inside are replaced) -->';
+const BLOCK_END = '<!-- cosmodrome:end -->';
+
+/**
+ * Keep cosmodrome's text in its own marked section of an instructions file (CLAUDE.md,
+ * AGENTS.md, ...). Everything the user wrote outside the markers stays as it is.
+ */
+export function writeManagedBlock(filePath, content) {
+  const current = readIfExists(filePath) ?? '';
+  const start = current.indexOf(BLOCK_START);
+  const end = current.indexOf(BLOCK_END, start);
+  const block = content.trim() ? `${BLOCK_START}\n${content.trim()}\n${BLOCK_END}\n` : '';
+  let next;
+  if (start >= 0 && end > start) {
+    next = current.slice(0, start) + block + current.slice(end + BLOCK_END.length).replace(/^\n/, '');
+  } else if (!block) {
+    return false;
+  } else {
+    next = current.trim() ? `${current.replace(/\s*$/, '')}\n\n${block}` : block;
+  }
+  if (next === current) return false;
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(filePath, next, { mode: 0o600 });
+  return true;
 }
 
 /**
@@ -190,14 +278,18 @@ function mergeJsonFile(filePath, patchFn) {
  * so all agents (claude, agy, codex, copilot, opencode) share the same capabilities.
  */
 export function syncAgentCustomizations({ agent, agentDir, paths, cwd }) {
-  if (!agent || !agentDir) return { synced: [] };
+  if (!agent || !agentDir) return { synced: [], mcpConfig: null };
   const rules = loadRules(paths, cwd);
   const skills = loadSkills(paths, cwd);
   const { mcpServers } = loadMcpServers(paths, cwd);
   const hasMcp = Object.keys(mcpServers).length > 0;
-  if (!rules.length && !skills.length && !hasMcp) return { synced: [] };
+  if (!rules.length && !skills.length && !hasMcp) return { synced: [], mcpConfig: null };
 
   const synced = [];
+  let mcpConfig = null;
+  const instructions = (file) => {
+    if (writeManagedBlock(file, combinedInstructions)) synced.push(file);
+  };
   const combinedInstructions = [
     '# Cosmodrome Shared Rules & Skills',
     ...rules.map((r) => r.content),
@@ -211,22 +303,16 @@ export function syncAgentCustomizations({ agent, agentDir, paths, cwd }) {
 
   try {
     if (agent.name === 'claude') {
-      const claudeMd = path.join(agentDir, 'CLAUDE.md');
-      fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
-      fs.writeFileSync(claudeMd, combinedInstructions, { mode: 0o600 });
-      synced.push(claudeMd);
-      if (hasMcp) {
-        const claudeJson = path.join(agentDir, '.claude.json');
-        mergeJsonFile(claudeJson, (cur) => ({ ...cur, mcpServers: { ...(cur.mcpServers || {}), ...mcpServers } }));
-        synced.push(claudeJson);
-      }
+      instructions(path.join(agentDir, 'CLAUDE.md'));
+      // Never edit .claude.json: it holds Claude Code's account and session state. cosmo keeps
+      // its servers in its own file and passes it with --mcp-config.
+      if (hasMcp) mcpConfig = writeOwnMcpFile(agentDir, mcpServers, synced);
     } else if (agent.name === 'agy') {
       const agyBase = path.join(agentDir, 'home', '.gemini', 'antigravity-cli');
       fs.mkdirSync(agyBase, { recursive: true, mode: 0o700 });
       if (hasMcp) {
         const mcpPath = path.join(agyBase, 'mcp_config.json');
-        mergeJsonFile(mcpPath, (cur) => ({ ...cur, mcpServers: { ...(cur.mcpServers || {}), ...mcpServers } }));
-        synced.push(mcpPath);
+        if (mergeJsonFile(mcpPath, (cur) => ({ ...cur, mcpServers: { ...(cur.mcpServers || {}), ...mcpServers } }))) synced.push(mcpPath);
       }
       for (const s of skills) {
         const targetSkill = path.join(agyBase, 'skills', s.name, 'SKILL.md');
@@ -235,30 +321,24 @@ export function syncAgentCustomizations({ agent, agentDir, paths, cwd }) {
         synced.push(targetSkill);
       }
     } else if (agent.name === 'codex') {
-      const codexMd = path.join(agentDir, 'instructions.md');
-      fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
-      fs.writeFileSync(codexMd, combinedInstructions, { mode: 0o600 });
-      synced.push(codexMd);
+      // Codex reads global guidance from AGENTS.md in CODEX_HOME.
+      instructions(path.join(agentDir, 'AGENTS.md'));
     } else if (agent.name === 'opencode') {
       const ocDir = path.join(agentDir, 'config', 'opencode');
-      fs.mkdirSync(ocDir, { recursive: true, mode: 0o700 });
-      const ocMd = path.join(ocDir, 'AGENTS.md');
-      fs.writeFileSync(ocMd, combinedInstructions, { mode: 0o600 });
-      synced.push(ocMd);
+      instructions(path.join(ocDir, 'AGENTS.md'));
       if (hasMcp) {
         const ocJson = path.join(ocDir, 'opencode.json');
-        mergeJsonFile(ocJson, (cur) => ({ ...cur, mcp: { ...(cur.mcp || {}), ...mcpServers } }));
-        synced.push(ocJson);
+        if (mergeJsonFile(ocJson, (cur) => ({ ...cur, mcp: { ...(cur.mcp || {}), ...mcpServers } }))) synced.push(ocJson);
       }
     } else if (agent.name === 'copilot') {
-      const copilotMd = path.join(agentDir, 'instructions.md');
-      fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
-      fs.writeFileSync(copilotMd, combinedInstructions, { mode: 0o600 });
-      synced.push(copilotMd);
+      // Copilot reads personal instructions from $COPILOT_HOME/copilot-instructions.md
+      // (`copilot instruction list`); MCP servers go in with --additional-mcp-config.
+      instructions(path.join(agentDir, 'copilot-instructions.md'));
+      if (hasMcp) mcpConfig = writeOwnMcpFile(agentDir, mcpServers, synced);
     }
   } catch {
     /* non-fatal sync */
   }
 
-  return { synced };
+  return { synced, mcpConfig };
 }
