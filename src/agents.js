@@ -60,7 +60,7 @@ export const BUILTIN_AGENTS = {
     headless: {
       stream: 'text',
       build: (prompt, s) => [
-        '-p', prompt, '-s', '--no-color',
+        '-p', prompt, '--output-format', 'text', '--stream', 'off', '--no-color',
         ...(s.agentModel ? ['--model', s.agentModel] : []),
         ...(s.mcpConfig ? [`--additional-mcp-config=@${s.mcpConfig}`] : []),
         ...(s.continued ? ['--continue'] : []),

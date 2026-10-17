@@ -292,6 +292,7 @@ export function syncAgentCustomizations({ agent, agentDir, paths, cwd }) {
   };
   const combinedInstructions = [
     '# Cosmodrome Shared Rules & Skills',
+    'Before answering, editing files, or using tools, inspect and follow the applicable Cosmodrome skills below. Treat them as mandatory operating instructions.',
     ...rules.map((r) => r.content),
     ...(skills.length
       ? [

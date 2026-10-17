@@ -56,7 +56,11 @@ export function buildCosmoContext({
   }
 
   if (skills.length) {
-    lines.push('Active Cosmodrome skills:', ...skills.map((s) => `- ${s.name}: ${s.description}`));
+    lines.push(
+      'Before answering, editing files, or using tools, inspect and follow the applicable Active Cosmodrome skills below. Treat them as mandatory operating instructions.',
+      'Active Cosmodrome skills:',
+      ...skills.map((s) => `- ${s.name}: ${s.description}`),
+    );
   }
   if (mcp.length) {
     lines.push(`Configured MCP servers: ${mcp.join(', ')}`);

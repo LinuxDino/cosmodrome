@@ -21,6 +21,7 @@ import { CosmoError, closest, failureHint } from '../ui.js';
 import { saveArtifact, artifactsRoot, listArtifacts } from '../artifacts.js';
 import { UsageTracker } from '../usage.js';
 import { parseSubagentCalls, runDelegation, runCouncil, listOllamaModels, pickLocalModel, createSubagentTagFilter } from '../orchestrator.js';
+import { enrichPrompt } from '../context.js';
 
 const VERSION = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 const HISTORY_MAX = 500;
@@ -728,6 +729,8 @@ export class App {
       echo = true,
       quietMeta = false,
       skipSubagentSpawn = false,
+      enrich = true,
+      suppressOutput = false,
       triedAgents = new Set(),
     } = {},
   ) {
@@ -757,7 +760,18 @@ export class App {
     if (session.moved) this.print(t.dim(`  new conversation for ${tildify(this.state.cwd, this.ctx.paths.home)} (agents keep conversations per folder)`));
     const runMode = this.effectiveMode(modeOverride);
     const plan = this.cli.plan(this.config, ch.profile, agent, this.cliCtx());
-    const args = buildHeadless(agent, prompt, { ...session, mode: runMode, model: this.localModel(agent), agentModel: agentModel(this.config, ch.profile, agent.name), mcpConfig: plan.mcpConfig });
+    const effectivePrompt = enrich
+      ? enrichPrompt(prompt, {
+          profile: ch.profile,
+          agent: agent.name,
+          cwd: this.state.cwd,
+          mode: runMode,
+          installedAgents: agentNames(this.config).filter((a) => this.channels.installed(a)),
+          paths: this.ctx.paths,
+          allowSubagents: agent.name !== 'ollama',
+        })
+      : prompt;
+    const args = buildHeadless(agent, effectivePrompt, { ...session, mode: runMode, model: this.localModel(agent), agentModel: agentModel(this.config, ch.profile, agent.name), mcpConfig: plan.mcpConfig });
     if (!args) {
       throw new CosmoError(`${agent.label} has no one-shot mode configured.`, { hint: 'Use /native, or add "headless" to the agent in cosmo config edit.' });
     }
@@ -773,6 +787,7 @@ export class App {
       cwd: this.state.cwd,
       format: agent.headless?.stream || 'text',
       onText: (text, info) => {
+        if (suppressOutput) return;
         const shown = hideTags(text);
         if (shown == null) return;
         if (info?.block) write = this.makeWriter();
@@ -816,6 +831,8 @@ export class App {
           echo: false,
           quietMeta,
           skipSubagentSpawn,
+          enrich,
+          suppressOutput,
           triedAgents,
         });
       }
@@ -905,7 +922,16 @@ export class App {
         }
         const bin = this.cli.requireBin(agent, this.ctx);
         const plan = this.cli.plan(this.config, ch.profile, agent, this.cliCtx());
-        const args = buildHeadless(agent, sub.prompt, { continued: false, mode: sub.mode, model: this.localModel(agent), agentModel: agentModel(this.config, ch.profile, agent.name), mcpConfig: plan.mcpConfig });
+        const delegatedPrompt = enrichPrompt(sub.prompt, {
+          profile: ch.profile,
+          agent: agent.name,
+          cwd: this.state.cwd,
+          mode: sub.mode,
+          installedAgents: agentNames(this.config).filter((a) => this.channels.installed(a)),
+          paths: this.ctx.paths,
+          allowSubagents: agent.name !== 'ollama',
+        });
+        const args = buildHeadless(agent, delegatedPrompt, { continued: false, mode: sub.mode, model: this.localModel(agent), agentModel: agentModel(this.config, ch.profile, agent.name), mcpConfig: plan.mcpConfig });
         const t0 = Date.now();
         const handle = runProcess({
           bin,
@@ -960,30 +986,21 @@ export class App {
     this.endRun();
 
     for (const r of results) {
-      this.print(`${t.magenta('╭─')} ${t.bold(`@${r.agent}`)} ${t.dim(r.code === 0 ? '✓ completed' : `✗ exit ${r.code}`)}`);
-      if (r.text.trim()) {
-        const md = createMarkdownState();
-        const lines = r.text
-          .trim()
-          .split('\n')
-          .map((l) => `${t.magenta('│')} ${renderMarkdownLine(sanitize(l), md, t)}`);
-        this.print(lines);
-      }
-      this.print(t.magenta('╰' + '─'.repeat(28)));
+      this.print(`${t.magenta('✦')} ${t.bold(`@${r.agent}`)} ${t.dim(r.code === 0 ? '✓ advisor complete' : `✗ advisor exit ${r.code}`)}`);
     }
 
     const combinedText = results
       .filter((r) => r.text.trim())
-      .map((r) => `## @${r.agent}\n${r.text.trim()}`)
+      .map((r) => `## @${r.agent}\n${r.text.trim().slice(0, 12000)}`)
       .join('\n\n');
 
-    if (synthesizeWith && results.length > 1 && this.channels.installed(synthesizeWith) && combinedText) {
+    if (synthesizeWith && this.channels.installed(synthesizeWith) && combinedText) {
       const synthPrompt =
-        `Synthesize the following ${results.length} agent responses to "${parentPrompt}". ` +
-        `Highlight consensus, key trade-offs, and actionable next steps with clickable file:// links:\n\n${combinedText}`;
+        `You are the final executor for "${parentPrompt}". Review these advisor findings, resolve conflicts, and provide the actionable final response. ` +
+        `Be concise. Include changed files or exact next steps and tests. Do not mention internal routing.\n\n${combinedText.slice(0, 30000)}`;
       return this.sendPrompt(synthPrompt, {
         agent: synthesizeWith,
-        mode: 'ask',
+        mode: council ? 'ask' : this.state.mode,
         echo: false,
         skipSubagentSpawn: true,
         saveAs,

@@ -92,7 +92,7 @@ hello!                # chat with the current channel
 | `/modules` | Your custom commands |
 | `/model [agent] [model]` | Model per agent for this profile (`/model claude opus`, `/model copilot auto`) |
 | `/project [init]` | This project's `COSMO.md` |
-| `/router [on\|off\|model]` | Local Ollama model plans each message and hands parts to the right agents |
+| `/router [on\|off\|model]` | Local Ollama model quickly routes complex work to parallel advisors; Claude finalizes when available |
 | `/delegate <task>` · `/council <question>` | Split a task across agents · ask several agents in parallel and merge the answers |
 | `/usage` | Runs, cost, usage-limit cooldowns and automatic switches per agent |
 | `/skills`, `/mcp` | Shared rules, skills and MCP servers for all agents (`init`, `sync`) |
