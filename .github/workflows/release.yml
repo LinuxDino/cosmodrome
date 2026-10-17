@@ -1,15 +1,31 @@
 name: Release
+# Two ways to publish:
+# - push a tag vX.Y.Z (from your machine), or
+# - Actions -> Release -> Run workflow: pick the commit; the workflow tags it vX.Y.Z
+#   (version from that commit's package.json) and publishes.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, branch or tag to release (its package.json sets the version)
+        required: true
+        default: main
 permissions:
-  contents: read
+  contents: write   # create the release tag when started by hand
   id-token: write   # lets npm verify this workflow (trusted publishing + provenance)
+concurrency:
+  group: release
+  cancel-in-progress: false
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -17,11 +33,25 @@ jobs:
       - run: npm install -g npm@11   # trusted publishing needs npm 11.5.1 or newer
       - name: Check version
         id: version
+        env:
+          EVENT: ${{ github.event_name }}
         run: |
           version=$(node -p "require('./package.json').version")
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+          tag="v$version"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = "push" ] && [ "$tag" != "$GITHUB_REF_NAME" ]; then
             echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $version"
             exit 1
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            existing=$(git rev-parse -q --verify "refs/tags/$tag^{commit}" || true)
+            if [ -n "$existing" ] && [ "$existing" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::Tag $tag already exists on another commit ($existing)"
+              exit 1
+            fi
+            if [ -z "$existing" ]; then
+              echo "create_tag=true" >> "$GITHUB_OUTPUT"
+            fi
           fi
           if npm view "cosmodrome@$version" version >/dev/null 2>&1; then
             echo "::notice::cosmodrome@$version is already on npm - nothing to publish"
@@ -31,3 +61,15 @@ jobs:
         run: npm test
       - if: steps.version.outputs.skip != 'true'
         run: npm publish --provenance --access public
+      # Tag after a successful publish, as the person who started the run. A tag pushed
+      # with GITHUB_TOKEN does not start this workflow again, so nothing is published twice.
+      - if: steps.version.outputs.create_tag == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+        run: |
+          git config user.name "$ACTOR"
+          git config user.email "$ACTOR_ID+$ACTOR@users.noreply.github.com"
+          git tag -a "$TAG" -m "cosmodrome ${TAG#v}"
+          git push origin "$TAG"
