@@ -152,3 +152,38 @@ test('orbit spinner: satellite passes in front, then behind, and can stand still
   assert.equal(orbitFrame(5, { t: plain, glyphs }), orbitFrame(5 + ORBIT_FRAMES, { t: plain, glyphs }));
   assert.equal(orbitFrame(null, { t: plain, glyphs }), '(   ✦   )');
 });
+
+test('status line and prompt box fit narrow terminals', async () => {
+  const { statusLine, shortenPath } = await import('../src/tui/components/statusLine.js');
+  const args = { channel: 'work/claude', mode: 'ask', ghUser: 'dino', cwd: '~/work/clients/acme/api', t: plain };
+  const wide = statusLine({ ...args, cols: 100 });
+  assert.equal(wide[0], '  #work/claude · ask mode · GitHub dino · ~/work/clients/acme/api');
+  assert.equal(wide.length, 2);
+  const mid = statusLine({ ...args, cols: 60 });
+  assert.ok(!mid[0].includes('GitHub') && mid.length === 2);
+  const narrow = statusLine({ ...args, cols: 40 });
+  assert.equal(narrow.length, 1, 'no key hints below 60 columns');
+  for (const cols of [100, 60, 40, 30]) for (const l of statusLine({ ...args, cols })) assert.ok(width(l) <= cols - 1, `${cols}: ${l}`);
+  assert.equal(shortenPath('~/work/clients/acme/api', 16), '~/work/…/api');
+  const box = promptBox({ chars: [], cursor: 0, cols: 30, t: plain, placeholder: 'Message #work/claude · / for commands' });
+  assert.ok(box.lines[1].includes('…') && box.lines.every((l) => width(l) === 29));
+});
+
+test('screen erases the right rows after the terminal got narrower', () => {
+  const out = { columns: 80, rows: 24, write: () => {} };
+  const screen = new Screen(out);
+  screen.render(['a'.repeat(79), 'b'.repeat(79), 'c'], { row: 2, col: 1 });
+  assert.equal(screen.rowsAboveCursor(), 2);
+  out.columns = 40; // the two long lines now wrap to 2 rows each
+  assert.equal(screen.rowsAboveCursor(), 4);
+});
+
+test('ASCII mode swaps every interface symbol 1:1', () => {
+  const writes = [];
+  const screen = new Screen({ columns: 40, rows: 20, write: (s) => writes.push(s) }, { ascii: true });
+  const box = promptBox({ chars: [], cursor: 0, cols: 40, t: plain, placeholder: 'Message · x' });
+  screen.render(['⏺ ↪ ❯ • ✓ ✗ ⎿ …', ...box.lines], { row: 2, col: 4 });
+  const drawn = writes[0].replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+  assert.ok(/^[\x20-\x7e\n\r]*$/.test(drawn), drawn);
+  assert.ok(drawn.includes('* > > * v x ` .') && drawn.includes('+------'));
+});

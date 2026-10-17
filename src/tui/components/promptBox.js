@@ -1,10 +1,9 @@
-import { charWidth, width } from '../screen.js';
-
-const MAX_VISIBLE = 8;
+import { charWidth, width, truncate } from '../screen.js';
 
 /** Bordered input box like Claude Code's. Returns lines and the cursor position inside them. */
-export function promptBox({ chars, cursor, cols, t, placeholder = '', mode = 'ask' }) {
-  const w = Math.max(16, cols - 1);
+export function promptBox({ chars, cursor, cols, t, placeholder = '', mode = 'ask', maxVisible = 8 }) {
+  const MAX_VISIBLE = Math.max(1, maxVisible);
+  const w = Math.max(8, cols - 1);
   const inner = w - 6;
   const shown = chars.map((ch) => (ch === '\n' ? '↵' : ch));
 
@@ -39,8 +38,9 @@ export function promptBox({ chars, cursor, cols, t, placeholder = '', mode = 'as
     let text = c.text;
     let tw = c.w;
     if (!chars.length && isFirst && placeholder) {
-      text = t.dim(placeholder.slice(0, inner));
-      tw = Math.min(placeholder.length, inner);
+      const shown = truncate(placeholder, inner);
+      text = t.dim(shown);
+      tw = width(shown);
     }
     lines.push(`${border('│')} ${isFirst ? t.bold('>') : ' '} ${text}${' '.repeat(Math.max(0, inner - tw))} ${border('│')}`);
   });

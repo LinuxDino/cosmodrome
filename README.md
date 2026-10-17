@@ -126,7 +126,7 @@ cosmo profile add work --agent claude --git-email you@company.com --workdir ~/wo
 
 Tokens exported in your shell (`GH_TOKEN`, `ANTHROPIC_API_KEY`, …) are removed before any agent starts, unless a profile lists them in `passthroughEnv`.
 
-> **macOS note:** some CLIs keep credentials in the shared login Keychain. After your first logins, check the account per profile (`/status` inside Claude Code, the header in agy).
+> **macOS note:** some CLIs keep their login in the macOS Keychain. Recent Claude Code versions (about 2.1.121 and later) keep one Keychain entry per profile folder; older ones share a single entry, and agy always uses the shared Keychain. `cosmo doctor` checks this for you. After your first logins, confirm the account per profile (`/status` inside Claude Code, the header in agy).
 
 ## Docs
 

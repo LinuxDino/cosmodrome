@@ -1,5 +1,7 @@
-import { CosmoError } from './ui.js';
+import { CosmoError, closest } from './ui.js';
 import { canonicalAgentName } from './agents.js';
+
+const COMMAND_NAMES = ['init', 'profile', 'login', 'launch', 'fleet', 'shell', 'env', 'status', 'doctor', 'agents', 'config', 'help', 'version'];
 
 const camel = (s) => s.replace(/-([a-z])/g, (_, ch) => ch.toUpperCase());
 
@@ -69,8 +71,11 @@ export function parseLaunchArgs(args, config) {
     } else if (!opts.profile && config.profiles[a]) opts.profile = a;
     else if (canonicalAgentName(a, config)) opts.agent = canonicalAgentName(a, config);
     else {
-      throw new CosmoError(`"${a}" is neither a profile nor an agent.`, {
-        hint: `Profiles: ${Object.keys(config.profiles).join(', ') || 'none'} · run \`cosmo help\` for commands`,
+      const guess = closest(a, [...Object.keys(config.profiles), ...COMMAND_NAMES]);
+      throw new CosmoError(`"${a}" is neither a command, a profile nor an agent.`, {
+        hint: guess
+          ? `Did you mean \`cosmo ${guess}\`?`
+          : `Profiles: ${Object.keys(config.profiles).join(', ') || 'none'} · run \`cosmo help\` for commands`,
       });
     }
   }

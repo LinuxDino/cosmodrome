@@ -17,7 +17,7 @@ import { loadConfig, emptyConfig } from '../config.js';
 import { getAgent, buildHeadless, agentNames, canonicalAgentName } from '../agents.js';
 import { tildify } from '../paths.js';
 import { which } from '../system.js';
-import { CosmoError } from '../ui.js';
+import { CosmoError, closest, failureHint } from '../ui.js';
 import { saveArtifact, artifactsRoot, listArtifacts } from '../artifacts.js';
 
 const VERSION = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
@@ -28,8 +28,8 @@ export class App {
     this.ctx = ctx;
     this.cli = cli;
     this.t = t;
-    this.screen = new Screen(process.stdout);
     this.glyphs = pickGlyphs(ctx.env);
+    this.screen = new Screen(process.stdout, { ascii: this.glyphs.ascii });
     this.still = reducedMotion(ctx.env);
     this.commands = new Map();
     this.aliases = new Map();
@@ -139,7 +139,10 @@ export class App {
     process.stdout.write('\x1b[?2004h');
     this.keyHandler = (str, key) => this.onKey(str, key);
     stdin.on('keypress', this.keyHandler);
-    this.resizeHandler = () => this.render();
+    this.resizeHandler = () => {
+      clearTimeout(this.resizeTimer);
+      this.resizeTimer = setTimeout(() => this.render(), 50);
+    };
     process.stdout.on('resize', this.resizeHandler);
     this.restoreOnExit = () => this.restoreTerminal();
     process.on('exit', this.restoreOnExit);
@@ -184,7 +187,7 @@ export class App {
     process.stdout.off('resize', this.resizeHandler);
     this.restoreTerminal();
     process.stdin.pause();
-    process.stdout.write(`${t.magenta('✦')} ${t.dim('See you in orbit.')}\n`);
+    process.stdout.write(`${t.magenta(this.glyphs.star)} ${t.dim('See you in orbit.')}\n`);
     this.resolveExit?.(code);
   }
 
@@ -339,7 +342,10 @@ export class App {
       lines.push('');
     }
     const top = lines.length;
+    // Keep the whole prompt area on screen: it can't be erased once it scrolls off the top.
+    const budget = this.screen.rows - 1 - top;
     const box = promptBox({
+      maxVisible: Math.min(8, budget - 4),
       chars: s.input,
       cursor: s.cursor,
       cols,
@@ -350,9 +356,9 @@ export class App {
     lines.push(...box.lines);
     const sugg = this.suggestions();
     if (s.menuIndex >= sugg.length) s.menuIndex = 0;
-    if (sugg.length) lines.push(...menu({ items: sugg, index: s.menuIndex, t }));
+    if (sugg.length) lines.push(...menu({ items: sugg, index: s.menuIndex, t, maxItems: Math.min(8, budget - box.lines.length - 1) }));
     else {
-      lines.push(...statusLine({ channel: this.channels.id, mode: s.mode, ghUser: this.channels.ghUser, cwd: tildify(s.cwd, this.ctx.paths.home), notice: s.notice, items: this.statusItemValues(), t }));
+      lines.push(...statusLine({ channel: this.channels.id, mode: s.mode, ghUser: this.channels.ghUser, cwd: tildify(s.cwd, this.ctx.paths.home), notice: s.notice, items: this.statusItemValues(), t, cols }));
     }
     this.screen.render(lines, { row: top + box.cursor.row, col: box.cursor.col });
   }
@@ -548,7 +554,10 @@ export class App {
     if (text.startsWith('/')) {
       m = text.match(/^\/(\S+)\s*([\s\S]*)$/);
       const cmd = this.getCommand(m[1]);
-      if (!cmd) throw new CosmoError(`Unknown command /${m[1]}`, { hint: 'Type / to see all commands.' });
+      if (!cmd) {
+        const guess = closest(m[1], [...this.commands.keys()]);
+        throw new CosmoError(`Unknown command /${m[1]}`, { hint: guess ? `Did you mean /${guess}?` : 'Type / to see all commands.' });
+      }
       return cmd.run(m[2].trim(), this);
     }
     if (text.startsWith('!')) return this.runShell(text.slice(1).trim());
@@ -559,7 +568,10 @@ export class App {
     }
     if ((m = text.match(/^@(\S+)\s*([\s\S]*)$/))) {
       const agent = canonicalAgentName(m[1], this.config);
-      if (!agent) throw new CosmoError(`Unknown agent "${m[1]}".`, { hint: `Agents: ${agentNames(this.config).join(', ')}` });
+      if (!agent) {
+        const guess = closest(m[1], agentNames(this.config));
+        throw new CosmoError(`Unknown agent "${m[1]}".`, { hint: guess ? `Did you mean @${guess}?` : `Agents: ${agentNames(this.config).join(', ')}` });
+      }
       if (!m[2].trim()) throw new CosmoError(`Type a message after @${agent}.`, { hint: `e.g. @${agent} review my last commit` });
       return this.sendPrompt(m[2].trim(), { agent, echo: false });
     }
@@ -655,9 +667,13 @@ export class App {
       this.print(t.dim(`  (no output)${agent.headless?.emptyHint ? ' ' + agent.headless.emptyHint : ''}`));
     }
     if (res.code && !res.cancelled && res.stderr.trim()) {
-      this.print(res.stderr.trim().split('\n').slice(-6).map((l) => `  ${t.red(l)}`));
+      this.print(res.stderr.trim().split('\n').slice(-6).map((l) => `  ${t.red(sanitize(l))}`));
     }
     this.print(t.dim(`  ⎿ ${meta.join(' · ')}`));
+    if (res.code && !res.cancelled) {
+      const hint = failureHint({ agent: agent.name, label: agent.label, code: res.code, output: `${res.stderr}\n${res.result?.result || ''}\n${res.text}` });
+      this.print(`  ${t.yellow('!')} ${hint}`);
+    }
 
     this.lastResponse = { text: res.text, prompt, channel: `${ch.profile}/${agent.name}`, title: saveAs?.title };
     if (saveAs && res.text.trim() && !res.cancelled) this.saveResponse({ ...this.lastResponse, ...saveAs });

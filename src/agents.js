@@ -1,3 +1,5 @@
+import { versionAtLeast } from './system.js';
+
 /**
  * Built-in agent registry.
  *
@@ -16,7 +18,10 @@ export const BUILTIN_AGENTS = {
     env: { CLAUDE_CONFIG_DIR: '{agentDir}' },
     loginArgs: [],
     loginHint: 'Claude Code asks you to sign in on first start. If it does not, type /login.',
-    note: 'Isolated via CLAUDE_CONFIG_DIR. On macOS credentials live in the Keychain - check /status shows the right account per profile.',
+    note: 'Isolated via CLAUDE_CONFIG_DIR. On macOS the login is in the Keychain: recent versions keep one entry per config folder.',
+    // macOS: Claude Code names its Keychain entry after CLAUDE_CONFIG_DIR since about 2.1.121
+    // (community reports, not official docs); older versions share one entry.
+    keychain: { scope: 'per-folder', since: [2, 1, 121] },
     headless: {
       stream: 'claude-json',
       // The prompt goes last, after "--": a prompt starting with "-" would otherwise be
@@ -103,6 +108,7 @@ export const BUILTIN_AGENTS = {
     loginArgs: [],
     loginHint: 'Follow the sign-in prompts on first start.',
     note: 'No config-dir option, so agy gets a private HOME (SSH keys in ~/.ssh are not visible). On macOS the login Keychain is shared - check the account agy shows.',
+    keychain: { scope: 'shared' },
     headless: {
       stream: 'text',
       emptyHint: 'Some agy versions only print to a real terminal. Update agy (agy update) or use /native.',
@@ -178,4 +184,22 @@ export function buildHeadless(agent, prompt, s = {}) {
     ...(s.continued ? fill(h.continueArgs) : []),
     ...fill(s.mode === 'auto' ? h.autoArgs : h.askArgs),
   ];
+}
+
+/**
+ * What to say about the macOS login Keychain for an agent. Pure: `version` is the agent's
+ * own `--version` output parsed to [major, minor, patch] (or null). Never looks at the Keychain.
+ * Returns { level: 'ok' | 'warn', text } or null when there is nothing to say.
+ */
+export function keychainAdvice(agent, { platform, version = null }) {
+  const k = agent?.keychain;
+  if (platform !== 'darwin' || !k) return null;
+  if (k.scope === 'shared') {
+    return { level: 'warn', text: `${agent.label} keeps its login in the shared Keychain - profiles can end up on one account. Check the account it shows in each profile.` };
+  }
+  const since = k.since.join('.');
+  if (!version) return { level: 'warn', text: `${agent.label}: version unknown. Versions before ${since} share one Keychain login across profiles.` };
+  return versionAtLeast(version, k.since)
+    ? { level: 'ok', text: `${agent.label} ${version.join('.')} keeps a separate Keychain login per profile.` }
+    : { level: 'warn', text: `${agent.label} ${version.join('.')} shares one Keychain login across profiles. Update it (claude update) to keep work and private apart.` };
 }

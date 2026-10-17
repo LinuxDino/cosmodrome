@@ -5,7 +5,7 @@ import { resolvePaths, expandHome, tildify } from './paths.js';
 import {
   loadConfig, requireConfig, saveConfig, emptyConfig, validateProfileName, getProfile, assertSafeValue,
 } from './config.js';
-import { getAgent, agentNames } from './agents.js';
+import { getAgent, agentNames, keychainAdvice } from './agents.js';
 import { planProfileEnv, applyPlan, envDiff } from './env.js';
 import { which, runInteractive, capture, shq, gitVersion, versionAtLeast, dirHasEntries } from './system.js';
 import { readGhUser } from './github.js';
@@ -99,6 +99,13 @@ function plan(config, profileName, agent, ctx) {
 
 function resolveDir(dir, ctx) {
   return dir ? path.resolve(ctx.cwd, expandHome(dir, ctx.paths.home)) : ctx.cwd;
+}
+
+/** "2.1.302 (Claude Code)" -> [2, 1, 302]. Runs only `<agent> --version`. */
+function agentVersion(bin, ctx) {
+  const r = capture(bin, ['--version'], { env: ctx.env, timeout: 5000 });
+  const m = `${r.stdout} ${r.stderr}`.match(/(\d+)\.(\d+)\.(\d+)/);
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
 }
 
 // ---------------------------------------------------------------- commands
@@ -293,6 +300,21 @@ async function doctorCmd(args, ctx) {
     const bin = which(agent.command, ctx.env.PATH);
     check(Boolean(bin), `${a.padEnd(9)} ${agent.label}`, bin ? tildify(bin, ctx.paths.home) : `install: ${agent.install || '-'}`);
   }
+  if (ctx.platform === 'darwin') {
+    const notes = [];
+    for (const a of agentNames(config || {})) {
+      const agent = getAgent(a, config || {}, ctx.platform);
+      const bin = agent.keychain && which(agent.command, ctx.env.PATH);
+      if (!bin) continue;
+      const advice = keychainAdvice(agent, { platform: ctx.platform, version: agentVersion(bin, ctx) });
+      if (advice) notes.push(advice);
+    }
+    if (notes.length) {
+      out('');
+      out(co.bold('macOS Keychain'));
+      for (const n of notes) check(n.level === 'ok', n.text);
+    }
+  }
   return problems ? 1 : 0;
 }
 
@@ -428,6 +450,10 @@ async function profileCmd(args, ctx) {
     const name = pos[0];
     getProfile(config, name);
     const dir = path.join(ctx.paths.stationDir, name);
+    if (ctx.platform === 'darwin') {
+      warn(`macOS: logins kept in the Keychain stay there after removing "${name}".`);
+      log(c.dim(`  Sign out first if you want them gone: cosmo ${name} claude, then /logout (same for other agents).`));
+    }
     if (flags.purge && !flags.yes) {
       if (!ctx.interactive) throw new CosmoError('--purge deletes all logins of this profile.', { hint: 'Add --yes to confirm.' });
       if (!(await confirm(`Delete ${tildify(dir, ctx.paths.home)} including all logins?`, false))) return 1;

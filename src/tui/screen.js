@@ -91,30 +91,58 @@ export function pad(s, n) {
   return cut + ' '.repeat(Math.max(0, n - width(cut)));
 }
 
+/**
+ * One ASCII character for each symbol the interface draws, so a terminal without UTF-8
+ * still lines up (every replacement has the same width as the original).
+ */
+const ASCII = {
+  '⏺': '*', '⎿': '`', '↪': '>', '╭': '+', '╮': '+', '╰': '+', '╯': '+', '─': '-', '│': '|', '┌': '+', '└': '+',
+  '❯': '>', '•': '*', '✓': 'v', '✗': 'x', '⏵': '>', '●': '*', '⎇': '@', '↵': '~', '…': '.', '·': '-',
+  '✦': '*', '✧': '+', '◉': 'o', '✶': '*', '✸': '*', '✹': '*', '✺': '*', '‾': '-', '⇧': '^',
+};
+const ASCII_RE = new RegExp(`[${Object.keys(ASCII).join('')}]`, 'g');
+export const toAscii = (s) => String(s).replace(ASCII_RE, (ch) => ASCII[ch]);
+
 export class Screen {
-  constructor(out = process.stdout) {
+  constructor(out = process.stdout, { ascii = false } = {}) {
     this.out = out;
+    this.ascii = ascii;
     this.lines = 0;
     this.cursorRow = 0;
   }
 
   get cols() {
-    return Math.max(24, this.out.columns || 80);
+    return Math.max(10, this.out.columns || 80);
   }
 
   get rows() {
-    return Math.max(10, this.out.rows || 24);
+    return Math.max(5, this.out.rows || 24);
   }
 
   /** Escape codes that erase the prompt area (empty if nothing is drawn). */
   eraseCodes() {
     if (!this.lines) return '';
     let s = '\x1b[?25l';
-    if (this.cursorRow > 0) s += `\x1b[${this.cursorRow}A`;
+    const up = this.rowsAboveCursor();
+    if (up > 0) s += `\x1b[${up}A`;
     s += '\r\x1b[J';
     this.lines = 0;
     this.cursorRow = 0;
+    this.widths = [];
     return s;
+  }
+
+  /**
+   * Terminal rows between the top of the prompt area and the cursor. Equal to the line
+   * index at the width we drew with; after the terminal got narrower, the terminal has
+   * re-wrapped our lines, so count the rows each one takes now.
+   */
+  rowsAboveCursor() {
+    const cols = this.cols;
+    const widths = this.widths || [];
+    let rows = 0;
+    for (let i = 0; i < this.cursorRow; i++) rows += Math.max(1, Math.ceil((widths[i] || 0) / cols));
+    return rows + Math.floor((this.cursorCol || 0) / cols);
   }
 
   /**
@@ -122,7 +150,7 @@ export class Screen {
    * the finished frame instead of the erase in between. Terminals without it ignore it.
    */
   write(s) {
-    if (s) this.out.write(`\x1b[?2026h${s}\x1b[?2026l`);
+    if (s) this.out.write(`\x1b[?2026h${this.ascii ? toAscii(s) : s}\x1b[?2026l`);
   }
 
   /** Erase the prompt area. */
@@ -141,6 +169,8 @@ export class Screen {
     this.write(s);
     this.lines = safe.length;
     this.cursorRow = cursor.row;
+    this.cursorCol = cursor.col;
+    this.widths = safe.map((l) => width(l));
   }
 
   /** Print permanent lines above the prompt area. */

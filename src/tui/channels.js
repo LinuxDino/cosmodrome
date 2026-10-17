@@ -3,7 +3,7 @@ import { getAgent, agentNames, canonicalAgentName } from '../agents.js';
 import { which } from '../system.js';
 import { readGhUser } from '../github.js';
 import { tildify } from '../paths.js';
-import { CosmoError } from '../ui.js';
+import { CosmoError, closest } from '../ui.js';
 import { detectProfile } from '../detect.js';
 
 /**
@@ -61,8 +61,14 @@ export class ChannelManager {
     if (s.includes('/')) {
       const [profile, agentRaw] = s.split('/');
       const agent = canonicalAgentName(agentRaw, this.config);
-      if (!profiles[profile]) throw new CosmoError(`Unknown profile "${profile}".`);
-      if (!agent) throw new CosmoError(`Unknown agent "${agentRaw}".`);
+      if (!profiles[profile]) {
+        const guess = closest(profile, Object.keys(profiles));
+        throw new CosmoError(`Unknown profile "${profile}".`, { hint: guess ? `Did you mean #${guess}/${agentRaw}?` : `Profiles: ${Object.keys(profiles).join(', ')}` });
+      }
+      if (!agent) {
+        const guess = closest(agentRaw, agentNames(this.config));
+        throw new CosmoError(`Unknown agent "${agentRaw}".`, { hint: guess ? `Did you mean #${profile}/${guess}?` : `Agents: ${agentNames(this.config).join(', ')}` });
+      }
       return { profile, agent };
     }
     if (profiles[s]) return { profile: s, agent: this.defaultAgent(s) };

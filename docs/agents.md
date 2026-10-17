@@ -39,7 +39,8 @@ Shell commands stay blocked for Claude even in auto mode. For full control, use 
 ### Claude Code
 - Install: `npm install -g @anthropic-ai/claude-code`
 - The interface parses Claude's stream-json output, so you see tool calls (`⏺ WebSearch(…)`) and cost, and every channel resumes its own session id.
-- macOS: credentials may live in the Keychain. Run `/status` inside `cosmo work claude` and `cosmo private claude` once to confirm each shows the right account.
+- macOS: the login lives in the Keychain. Claude Code about 2.1.121 and later names the Keychain entry after `CLAUDE_CONFIG_DIR`, so every profile gets its own; older versions share one entry, so update first (`claude update`). `cosmo doctor` shows which case you have. This comes from community reports, not official docs, so still run `/status` inside `cosmo work claude` and `cosmo private claude` once to confirm each shows the right account.
+- Because the entry is tied to the folder path, moving the cosmodrome data folder (or changing `COSMODROME_HOME`) means signing in again. Before `cosmo profile remove`, run `/logout` in that profile if you want the Keychain entry gone.
 
 ### GitHub Copilot CLI
 - Install: `npm install -g @github/copilot` (Node 22+) or `brew install --cask github-copilot-cli`

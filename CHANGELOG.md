@@ -5,6 +5,10 @@
 - Fixed: Esc now stops the agent and every tool it started; a run can no longer hang on "Interrupting…".
 - Fixed: Enter runs a slash command typed out in full (/native, /mode, /channel, ...).
 - Fixed: Claude prompts starting with "-"; conversations after /cd; agent output with control codes breaking the screen; bold next to links.
+- Narrow terminals: the status line drops the least important parts first, long folders are shortened in the middle, and the prompt area never grows taller than the terminal. Shrinking the window no longer leaves old borders behind.
+- ASCII mode now covers the whole interface, not only the logo.
+- Clearer errors: a failed agent run says what to do next (e.g. `/login claude` when it isn't signed in), and typos get "did you mean" for commands, profiles and agents.
+- macOS: `cosmo doctor` checks whether Claude Code keeps a separate Keychain login per profile (about 2.1.121+) and warns for older versions and agy; `profile remove` reminds you to sign out first.
 - Esc reacts in 50 ms instead of 500 ms; the prompt is drawn in one synchronized write.
 
 ## 0.2.0

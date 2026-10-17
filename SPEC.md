@@ -20,7 +20,7 @@ gh → `GH_CONFIG_DIR` · git → `GIT_CONFIG_GLOBAL` · Claude → `CLAUDE_CONF
 Config `~/.config/cosmodrome/config.json` · profiles `~/.local/share/cosmodrome/profiles/<name>/` · artifacts `<repo>/.cosmo/artifacts/` · `COSMODROME_HOME` puts config and data in one folder.
 
 ## Known limits
-Shared macOS Keychain for some CLIs · agy's private HOME hides `~/.ssh` · login state can't be verified offline · headless flags can change between agent versions (each lives in `src/agents.js`).
+Shared macOS Keychain for agy and Claude Code before ~2.1.121 (`doctor` warns) · agy's private HOME hides `~/.ssh` · login state can't be verified offline · headless flags can change between agent versions (each lives in `src/agents.js`).
 
 ## Later
 git worktree per fleet pane · ACP transport for richer tool views · artifact preview pane.

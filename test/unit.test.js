@@ -36,7 +36,8 @@ test('parseLaunchArgs passes everything after the agent through', () => {
   assert.equal(r.force, true);
   assert.deepEqual(r.rest, ['--resume', '-p', 'hi']);
   assert.equal(parseLaunchArgs(['antigravity'], config).agent, 'agy');
-  assert.throws(() => parseLaunchArgs(['nope'], config), /neither a profile nor an agent/);
+  assert.throws(() => parseLaunchArgs(['nope'], config), /neither a command, a profile nor an agent/);
+  assert.throws(() => parseLaunchArgs(['stauts'], config), (e) => /Did you mean `cosmo status`/.test(e.hint));
 });
 
 test('planProfileEnv isolates logins and scrubs tokens', () => {
@@ -115,4 +116,27 @@ test('startFleet builds a tiled tmux session', () => {
 test('shq quotes safely', () => {
   assert.equal(shq('/usr/bin/gh'), '/usr/bin/gh');
   assert.equal(shq("it's"), `'it'\\''s'`);
+});
+
+test('did-you-mean and failure hints', async () => {
+  const { closest, failureHint } = await import('../src/ui.js');
+  assert.equal(closest('stauts', ['status', 'shell']), 'status');
+  assert.equal(closest('xyz', ['status']), null);
+  const h = (output, code = 1) => failureHint({ agent: 'claude', label: 'Claude Code', code, output });
+  assert.match(h('Invalid API key · Please run /login'), /\/login claude/);
+  assert.match(h('error: unknown option --foo'), /arguments/);
+  assert.match(h('429 rate limit reached'), /usage limit/);
+  assert.match(h('', 127), /could not be started/);
+  assert.match(h('segfault'), /\/native/);
+});
+
+test('macOS Keychain advice depends on platform and agent version', async () => {
+  const { getAgent, keychainAdvice } = await import('../src/agents.js');
+  const claude = getAgent('claude');
+  assert.equal(keychainAdvice(claude, { platform: 'linux', version: [2, 0, 0] }), null);
+  assert.equal(keychainAdvice(claude, { platform: 'darwin', version: [2, 1, 302] }).level, 'ok');
+  assert.equal(keychainAdvice(claude, { platform: 'darwin', version: [2, 1, 120] }).level, 'warn');
+  assert.equal(keychainAdvice(claude, { platform: 'darwin', version: null }).level, 'warn');
+  assert.equal(keychainAdvice(getAgent('agy'), { platform: 'darwin' }).level, 'warn');
+  assert.equal(keychainAdvice(getAgent('codex'), { platform: 'darwin' }), null);
 });

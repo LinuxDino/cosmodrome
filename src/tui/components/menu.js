@@ -1,9 +1,8 @@
 import { width } from '../screen.js';
 
-const MAX_ITEMS = 8;
-
 /** Suggestion list under the input (slash commands, channels, agents...). */
-export function menu({ items, index, t }) {
+export function menu({ items, index, t, maxItems = 8 }) {
+  const MAX_ITEMS = Math.max(1, maxItems);
   let start = 0;
   if (items.length > MAX_ITEMS) start = Math.min(Math.max(0, index - MAX_ITEMS + 1), items.length - MAX_ITEMS);
   const view = items.slice(start, start + MAX_ITEMS);
