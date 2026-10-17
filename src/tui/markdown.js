@@ -3,12 +3,13 @@ export function createMarkdownState() {
   return { fence: null };
 }
 
+// Links go first: the color codes added by the other rules contain "[" and would confuse the link pattern.
 function inline(s, t) {
   return s
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, txt, url) => `${t.underline(txt)} ${t.dim(`(${url})`)}`)
     .replace(/`([^`]+)`/g, (_, c) => t.cyan(c))
     .replace(/\*\*([^*]+)\*\*/g, (_, b) => t.bold(b))
-    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, (_, p, i) => p + t.italic(i))
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, txt, url) => `${t.underline(txt)} ${t.dim(`(${url})`)}`);
+    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, (_, p, i) => p + t.italic(i));
 }
 
 export function renderMarkdownLine(line, state, t) {

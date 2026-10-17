@@ -55,6 +55,37 @@ export function truncate(s, max) {
   return hadAnsi ? out + '\x1b[0m' : out;
 }
 
+/**
+ * Make program output safe to print above the prompt: keep colors (SGR) only, drop other
+ * escape sequences and control characters, keep what a carriage return would leave
+ * visible, and expand tabs. Anything else could move the cursor and break the redraw.
+ */
+export function sanitize(line) {
+  let s = String(line);
+  if (s.includes('\r')) s = s.split('\r').filter(Boolean).pop() || '';
+  s = s.replace(ANSI_RE, (seq) => (/^\x1b\[[0-9;]*m$/.test(seq) ? seq : ''));
+  s = s.replace(/\x1b(?!\[[0-9;]*m)./g, ''); // stray escapes, but not the colors kept above
+  let out = '';
+  let col = 0;
+  for (const part of s.split(/(\x1b\[[0-9;]*m)/)) {
+    if (part.startsWith('\x1b')) {
+      out += part;
+      continue;
+    }
+    for (const ch of part) {
+      if (ch === '\t') {
+        const n = 8 - (col % 8);
+        out += ' '.repeat(n);
+        col += n;
+      } else if (!/[\x00-\x1f\x7f]/.test(ch)) {
+        out += ch;
+        col += charWidth(ch.codePointAt(0));
+      }
+    }
+  }
+  return out;
+}
+
 export function pad(s, n) {
   const cut = truncate(s, n);
   return cut + ' '.repeat(Math.max(0, n - width(cut)));
@@ -75,33 +106,45 @@ export class Screen {
     return Math.max(10, this.out.rows || 24);
   }
 
-  /** Erase the prompt area. */
-  clear() {
-    if (!this.lines) return;
+  /** Escape codes that erase the prompt area (empty if nothing is drawn). */
+  eraseCodes() {
+    if (!this.lines) return '';
     let s = '\x1b[?25l';
     if (this.cursorRow > 0) s += `\x1b[${this.cursorRow}A`;
     s += '\r\x1b[J';
-    this.out.write(s);
     this.lines = 0;
     this.cursorRow = 0;
+    return s;
+  }
+
+  /**
+   * One write per frame, inside synchronized output (DEC 2026) so the terminal shows
+   * the finished frame instead of the erase in between. Terminals without it ignore it.
+   */
+  write(s) {
+    if (s) this.out.write(`\x1b[?2026h${s}\x1b[?2026l`);
+  }
+
+  /** Erase the prompt area. */
+  clear() {
+    this.write(this.eraseCodes());
   }
 
   /** Draw the prompt area and park the cursor at {row, col}. */
   render(lines, cursor) {
-    this.clear();
+    let s = this.eraseCodes();
     const safe = lines.map((l) => truncate(l, this.cols - 1));
-    let s = '\x1b[?25l' + safe.join('\n');
+    s += '\x1b[?25l' + safe.join('\n');
     const up = safe.length - 1 - cursor.row;
     if (up > 0) s += `\x1b[${up}A`;
     s += '\r' + (cursor.col > 0 ? `\x1b[${cursor.col}C` : '') + '\x1b[?25h';
-    this.out.write(s);
+    this.write(s);
     this.lines = safe.length;
     this.cursorRow = cursor.row;
   }
 
   /** Print permanent lines above the prompt area. */
   print(lines) {
-    this.clear();
-    this.out.write(lines.join('\n') + '\n');
+    this.write(this.eraseCodes() + lines.join('\n') + '\n');
   }
 }

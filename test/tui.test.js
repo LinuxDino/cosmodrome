@@ -9,8 +9,9 @@ import { extractFiles, saveArtifact, listArtifacts, zipArtifacts, slugify } from
 import { crc32, createZip } from '../src/zip.js';
 import { promptBox } from '../src/tui/components/promptBox.js';
 import { renderMarkdownLine, createMarkdownState } from '../src/tui/markdown.js';
-import { width, truncate } from '../src/tui/screen.js';
+import { width, truncate, sanitize, Screen } from '../src/tui/screen.js';
 import { ChannelManager, recordRun } from '../src/tui/channels.js';
+import { runProcess } from '../src/tui/runner.js';
 
 const plain = new Proxy({}, { get: () => (s) => String(s) });
 
@@ -87,4 +88,40 @@ test('channel sessions continue only after a good run and only in the same folde
   assert.equal(moved.continued, false);
   assert.equal(moved.moved, true);
   assert.equal(ch.session('work', 'claude'), moved);
+});
+
+test('interrupt stops the agent and the tools it started', async () => {
+  const lines = [];
+  const handle = runProcess({ bin: '/bin/sh', args: ['-c', 'echo started; sleep 30 & sleep 30; wait'], onText: (l) => lines.push(l) });
+  while (!lines.length) await new Promise((r) => setTimeout(r, 20));
+  const t0 = Date.now();
+  handle.cancel();
+  const res = await handle.promise;
+  assert.ok(Date.now() - t0 < 4000, 'run ended after interrupt');
+  assert.equal(res.cancelled, true);
+  assert.deepEqual(lines, ['started']);
+});
+
+test('markdown keeps bold intact next to a link', () => {
+  const ansi = { bold: (s) => `\x1b[1m${s}\x1b[22m`, underline: (s) => `<u>${s}</u>`, dim: (s) => s, cyan: (s) => s, italic: (s) => s, magenta: (s) => s };
+  const out = renderMarkdownLine('- **Point** one [src](https://example.com)', createMarkdownState(), ansi);
+  assert.ok(out.includes('\x1b[1mPoint\x1b[22m one <u>src</u> (https://example.com)'), out);
+});
+
+test('sanitize keeps colors but drops cursor moves, \\r progress and tabs', () => {
+  assert.equal(sanitize('\x1b[31mred\x1b[39m'), '\x1b[31mred\x1b[39m');
+  assert.equal(sanitize('a\x1b[2Jb\x1b[1Ac\x1b]52;c;eA==\x07d'), 'abcd');
+  assert.equal(sanitize('10%\r50%\r100%'), '100%');
+  assert.equal(sanitize('a\tb'), 'a       b');
+  assert.equal(sanitize('bell\x07'), 'bell');
+});
+
+test('screen draws each frame in one synchronized write', () => {
+  const writes = [];
+  const screen = new Screen({ columns: 40, rows: 20, write: (s) => writes.push(s) });
+  screen.render(['one', 'two'], { row: 0, col: 2 });
+  screen.render(['three'], { row: 0, col: 0 });
+  assert.equal(writes.length, 2);
+  for (const w of writes) assert.ok(w.startsWith('\x1b[?2026h') && w.endsWith('\x1b[?2026l'));
+  assert.ok(writes[1].includes('\x1b[J'), 'second frame erases the first');
 });

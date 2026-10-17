@@ -14,7 +14,9 @@ function summarizeInput(input) {
  * 'text' streams stdout line by line.
  */
 export function runProcess({ bin, args, env, cwd, format = 'text', onText, onTool }) {
-  const child = spawn(bin, args, { env, cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+  // Own process group, so an interrupt also reaches the tools the agent started
+  // (a surviving grandchild would keep the output pipe open and the run would never end).
+  const child = spawn(bin, args, { env, cwd, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   const texts = [];
   let stderr = '';
   let buf = '';
@@ -72,32 +74,53 @@ export function runProcess({ bin, args, env, cwd, format = 'text', onText, onToo
     stderr = (stderr + d).slice(-20000);
   });
 
+  const signalGroup = (sig) => {
+    try {
+      process.kill(-child.pid, sig);
+    } catch {
+      try {
+        child.kill(sig);
+      } catch {
+        /* gone */
+      }
+    }
+  };
+
+  let closeTimer = null;
   const promise = new Promise((resolve) => {
-    child.on('error', (error) => resolve({ code: 127, error, stderr, sessionId, result, text: texts.join('\n'), cancelled }));
-    child.on('close', (code, signal) => {
+    let done = false;
+    const finish = (code, signal) => {
+      if (done) return;
+      done = true;
       clearTimeout(killTimer);
+      clearTimeout(closeTimer);
+      if (cancelled) signalGroup('SIGKILL'); // leftovers that ignored SIGINT (e.g. background jobs)
       if (buf) handleLine(buf.replace(/\r$/, ''));
       buf = '';
       const exit = code ?? 128 + (os.constants.signals[signal] || 0);
       resolve({ code: exit, stderr, sessionId, result, text: texts.join('\n'), cancelled });
+    };
+    child.on('error', (error) => {
+      done = true;
+      resolve({ code: 127, error, stderr, sessionId, result, text: texts.join('\n'), cancelled });
+    });
+    child.on('close', finish);
+    // Something that left our process group may still hold the pipes: stop waiting for them.
+    child.on('exit', (code, signal) => {
+      closeTimer = setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        finish(code, signal);
+      }, 1000);
     });
   });
 
   const cancel = () => {
+    if (cancelled) return signalGroup('SIGKILL'); // second Esc: no more waiting
     cancelled = true;
-    try {
-      child.kill('SIGINT');
-    } catch {
-      /* gone */
-    }
-    killTimer = setTimeout(() => {
-      try {
-        child.kill('SIGKILL');
-      } catch {
-        /* gone */
-      }
-    }, 2500);
+    signalGroup('SIGINT');
+    killTimer = setTimeout(() => signalGroup('SIGKILL'), 2500);
   };
 
-  return { promise, cancel, child };
+  return { promise, cancel, signal: signalGroup, child };
 }

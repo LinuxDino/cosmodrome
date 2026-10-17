@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
-import { Screen } from './screen.js';
+import { Screen, sanitize } from './screen.js';
 import { t } from './theme.js';
 import { header } from './components/header.js';
 import { promptBox } from './components/promptBox.js';
@@ -14,7 +14,7 @@ import { ChannelManager, recordRun } from './channels.js';
 import { runProcess } from './runner.js';
 import { loadModules } from './modules.js';
 import { loadConfig, emptyConfig } from '../config.js';
-import { getAgent, buildHeadless, agentNames } from '../agents.js';
+import { getAgent, buildHeadless, agentNames, canonicalAgentName } from '../agents.js';
 import { tildify } from '../paths.js';
 import { which } from '../system.js';
 import { CosmoError } from '../ui.js';
@@ -131,7 +131,7 @@ export class App {
     this.modules = await loadModules(this);
     registerBuiltinCommands(this); // registered after modules, so built-in names can't be overridden
     const stdin = process.stdin;
-    readline.emitKeypressEvents(stdin);
+    readline.emitKeypressEvents(stdin, { escapeCodeTimeout: 50 });
     stdin.setRawMode(true);
     stdin.resume();
     process.stdout.write('\x1b[?2004h');
@@ -141,6 +141,14 @@ export class App {
     process.stdout.on('resize', this.resizeHandler);
     this.restoreOnExit = () => this.restoreTerminal();
     process.on('exit', this.restoreOnExit);
+    // Agents run in their own process group, so pass a closing terminal on to them.
+    for (const [sig, code] of [['SIGHUP', 129], ['SIGTERM', 143]]) {
+      process.once(sig, () => {
+        this.state.running?.signal?.(sig);
+        this.restoreTerminal();
+        process.exit(code);
+      });
+    }
 
     this.print(header({ version: VERSION, cwd: tildify(this.state.cwd, this.ctx.paths.home), cols: this.screen.cols, t }));
     for (const e of this.modules.errors) this.print(`  ${t.red('✗')} module ${e.name}: ${t.dim(e.message)}`);
@@ -476,8 +484,11 @@ export class App {
       }
       if (sugg.length) {
         const item = sugg[s.menuIndex];
+        // A command typed out in full runs right away; its arguments are optional or it says what's missing.
+        const typed = s.input.join('');
+        const complete = typed.startsWith('/') && item.value.trimEnd() === typed;
         this.setInput(item.value);
-        if (!item.submit) return this.render();
+        if (!item.submit && !complete) return this.render();
       }
       return this.submit();
     }
@@ -544,15 +555,20 @@ export class App {
       if (m[2].trim()) return this.sendPrompt(m[2].trim(), { echo: false });
       return;
     }
-    if ((m = text.match(/^@(\S+)\s+([\s\S]+)$/))) return this.sendPrompt(m[2].trim(), { agent: m[1], echo: false });
+    if ((m = text.match(/^@(\S+)\s*([\s\S]*)$/))) {
+      const agent = canonicalAgentName(m[1], this.config);
+      if (!agent) throw new CosmoError(`Unknown agent "${m[1]}".`, { hint: `Agents: ${agentNames(this.config).join(', ')}` });
+      if (!m[2].trim()) throw new CosmoError(`Type a message after @${agent}.`, { hint: `e.g. @${agent} review my last commit` });
+      return this.sendPrompt(m[2].trim(), { agent, echo: false });
+    }
     return this.sendPrompt(text, { echo: false });
   }
 
   // ------------------------------------------------------------ running things
 
-  startRun(agent, cancel) {
+  startRun(agent, handle) {
     const s = this.state;
-    s.running = { agent, verb: pickVerb(), startedAt: Date.now(), cancel };
+    s.running = { agent, verb: pickVerb(), startedAt: Date.now(), cancel: handle.cancel, signal: handle.signal };
     this.spinnerTimer = setInterval(() => {
       s.spinnerFrame++;
       this.render();
@@ -574,12 +590,12 @@ export class App {
   }
 
   /** Stream lines of an answer with ⏺ on the first line, like Claude Code. */
-  makeWriter(prefixFirst = `${t.magenta('⏺')} `, prefixRest = '  ') {
+  makeWriter(prefixFirst = `${t.magenta('⏺')} `, prefixRest = '  ', { markdown = true } = {}) {
     const md = createMarkdownState();
     let first = true;
     return (text) => {
       const lines = String(text).split('\n').map((l) => {
-        const out = (first ? prefixFirst : prefixRest) + renderMarkdownLine(l, md, t);
+        const out = (first ? prefixFirst : prefixRest) + (markdown ? renderMarkdownLine(sanitize(l), md, t) : sanitize(l));
         first = false;
         return out;
       });
@@ -590,9 +606,9 @@ export class App {
   async sendPrompt(prompt, { agent: agentOverride, saveAs, echo = true } = {}) {
     const ch = this.requireChannel();
     if (echo) this.print(`${t.gray('> ')}${t.gray(prompt)}`);
-    const agentName = agentOverride ? this.channels.parse(agentOverride).agent : ch.agent;
+    const agentName = agentOverride ? canonicalAgentName(agentOverride, this.config) : ch.agent;
     const agent = getAgent(agentName, this.config, this.ctx.platform);
-    if (!agent) throw new CosmoError(`Unknown agent "${agentName}".`);
+    if (!agent) throw new CosmoError(`Unknown agent "${agentOverride || agentName}".`, { hint: `Agents: ${agentNames(this.config).join(', ')}` });
     const bin = this.cli.requireBin(agent, this.ctx);
     const session = this.channels.session(ch.profile, agent.name);
     if (session.moved) this.print(t.dim(`  new conversation for ${tildify(this.state.cwd, this.ctx.paths.home)} (agents keep conversations per folder)`));
@@ -620,7 +636,7 @@ export class App {
         write = this.makeWriter();
       },
     });
-    this.startRun(agent.name, handle.cancel);
+    this.startRun(agent.name, handle);
     this.render();
     const res = await handle.promise;
     this.endRun();
@@ -662,9 +678,9 @@ export class App {
     if (!command) throw new CosmoError('Type a command after !, e.g. !git status');
     const ch = this.channels.current;
     const env = ch ? this.cli.plan(this.config, ch.profile, null, this.cliCtx()).env : this.ctx.env;
-    const write = this.makeWriter(`  ${t.dim('⎿')} `, '    ');
-    const handle = runProcess({ bin: '/bin/sh', args: ['-c', `${command} 2>&1`], env, cwd: this.state.cwd, onText: (l) => write(t.dim(l)) });
-    this.startRun('shell', handle.cancel);
+    const write = this.makeWriter(`  ${t.dim('⎿')} `, '    ', { markdown: false });
+    const handle = runProcess({ bin: '/bin/sh', args: ['-c', `exec 2>&1\n${command}`], env, cwd: this.state.cwd, onText: (l) => write(t.dim(l)) });
+    this.startRun('shell', handle);
     this.render();
     const res = await handle.promise;
     this.endRun();

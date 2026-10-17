@@ -76,7 +76,7 @@ export function registerBuiltinCommands(app) {
       args: '[profile/agent]',
       description: 'Switch channel (profile + agent)',
       complete: () =>
-        app.channels.all().map((ch) => ({ value: ch.id, hint: `${ch.installed ? '' : 'not installed · '}${ch.isDefault ? 'default' : ''}` })),
+        app.channels.all().map((ch) => ({ value: ch.id, hint: [!ch.installed && 'not installed', ch.isDefault && 'default'].filter(Boolean).join(' · ') })),
       run: (args) => {
         if (!args) return app.commands.get('channels').run('');
         app.channels.switchTo(args);
@@ -283,7 +283,7 @@ export function registerBuiltinCommands(app) {
         const { root, list } = artifactsOf(app);
         const picked = pickArtifacts(list, args);
         const { file, count } = zipArtifacts(root, picked);
-        app.print(`${t.green('✓')} ${t.bold(tildify(file, app.ctx.paths.home))} ${t.dim(`(${count} files)`)}`);
+        app.print(`${t.green('✓')} ${t.bold(tildify(file, app.ctx.paths.home))} ${t.dim(`(${count} file${count === 1 ? '' : 's'})`)}`);
       },
     },
     {
