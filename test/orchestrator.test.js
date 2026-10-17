@@ -24,12 +24,38 @@ import { detectTextToolCall } from '../src/tui/runner.js';
 import { spinnerLine, subagentLines } from '../src/tui/components/spinner.js';
 import { createMarkdownState, renderMarkdownLine } from '../src/tui/markdown.js';
 import { getAgent } from '../src/agents.js';
+import { TaskStore } from '../src/tasks.js';
+import { buildProjectReviewPrompt, buildWorkLoopPrompt, agentProfile, REVIEW_GATES } from '../src/governance.js';
 
 const plain = new Proxy({}, { get: () => (s) => String(s) });
 
 test('package.json has zero runtime dependencies', () => {
   const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   assert.deepEqual(pkg.dependencies || {}, {});
+});
+
+test('TaskStore persists tasks, events, checkpoints and recovers interrupted work', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cosmo-tasks-'));
+  const first = new TaskStore(root);
+  const task = first.create({ prompt: 'Implement recovery', cwd: '/repo', profile: 'work', mode: 'auto' });
+  first.update(task.id, { status: 'executing', phase: 'agent', assignedAgent: 'claude' }, 'agent.started');
+  first.checkpoint(task.id, { next: 'run tests' });
+
+  const second = new TaskStore(root);
+  assert.equal(second.get(task.id).status, 'executing');
+  assert.equal(second.events(task.id).some((event) => event.type === 'task.checkpoint'), true);
+  const recovered = second.recover();
+  assert.equal(recovered.length, 1);
+  assert.equal(second.get(task.id).status, 'queued');
+  assert.equal(second.get(task.id).phase, 'recovery');
+  assert.equal(second.recover().length, 0);
+});
+
+test('governance assigns roles and requires a verified work loop', () => {
+  assert.equal(agentProfile('claude').title, 'Lead engineer');
+  assert.ok(REVIEW_GATES.some((gate) => gate.id === 'security' && gate.owner === 'claude'));
+  assert.match(buildProjectReviewPrompt(), /Do not edit files during this review/);
+  assert.match(buildWorkLoopPrompt('ship feature'), /PLAN:[\s\S]*EXECUTE:[\s\S]*VERIFY:[\s\S]*REVIEW:[\s\S]*CONTINUE:/);
 });
 
 test('UsageTracker detects rate limits and silently fails over to healthy provider', () => {
@@ -43,6 +69,7 @@ test('UsageTracker detects rate limits and silently fails over to healthy provid
   const r1 = tracker.record('work', 'claude', { code: 1, stderr: '429 usage limit exceeded' }, 1200);
   assert.equal(r1.limited, true);
   assert.equal(tracker.isThrottled('work', 'claude'), true);
+  assert.ok(tracker.nextCooldownMs('work', ['claude']) > 0);
 
   const picked = tracker.pickAgent({
     profile: 'work',
@@ -56,6 +83,7 @@ test('UsageTracker detects rate limits and silently fails over to healthy provid
 
   tracker.clearCooldowns();
   assert.equal(tracker.isThrottled('work', 'claude'), false);
+  assert.equal(tracker.nextCooldownMs('work', ['claude']), 0);
 });
 
 test('orchestrator parses <cosmo:subagent> and <cosmo:tool> tags and routes tasks', () => {

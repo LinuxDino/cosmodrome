@@ -11,6 +11,7 @@ import { createMarkdownState, renderMarkdownLine } from './markdown.js';
 import { orbitMap } from './components/orbitMap.js';
 import { runDelegation, runCouncil, listOllamaModels, pickLocalModel } from '../orchestrator.js';
 import { loadSkills, loadRules, loadMcpServers, initCustomizations, syncAgentCustomizations, cosmoMdPath, COSMO_MD_TEMPLATE } from '../skills.js';
+import { REVIEW_GATES, agentProfile, buildProjectReviewPrompt, buildWorkLoopPrompt } from '../governance.js';
 
 export const RESEARCH_PROMPT = (topic) =>
   `Research this topic on the web: ${topic}
@@ -73,6 +74,92 @@ export function registerBuiltinCommands(app) {
       aliases: ['?'],
       description: 'Commands and shortcuts',
       run: () => app.printHelp(),
+    },
+    {
+      name: 'roster',
+      description: 'Show agent roles and project review ownership',
+      run: () => {
+        const installed = agentNames(app.config).filter((a) => app.channels.installed(a));
+        app.print([
+          t.bold('Agent roster'),
+          ...installed.map((agent) => {
+            const p = agentProfile(agent);
+            return `  ${t.magenta('@' + agent).padEnd(18)} ${p.title} · ${t.dim(p.strengths)}`;
+          }),
+          '',
+          t.bold('Review gates'),
+          ...REVIEW_GATES.map((gate) => `  ${gate.label.padEnd(34)} ${t.magenta('@' + gate.owner)}${installed.includes(gate.owner) ? '' : t.dim(' (not installed)')}`),
+        ]);
+      },
+    },
+    {
+      name: 'review',
+      args: '[scope]',
+      description: 'Run a read-only project health and ownership review',
+      run: (args) => app.startTaskAndSend(buildProjectReviewPrompt(args || 'the current project'), { echo: false, mode: 'ask', saveAs: { title: 'project review', kind: 'review' } }),
+    },
+    {
+      name: 'loop',
+      args: '<goal>',
+      description: 'Run an implementation loop with verification and review',
+      run: (args) => {
+        if (!args) throw new CosmoError('What goal should the loop complete?', { hint: '/loop implement and test the login flow' });
+        return app.startTaskAndSend(buildWorkLoopPrompt(args), { echo: false });
+      },
+    },
+    {
+      name: 'tasks',
+      args: '[all]',
+      description: 'List durable tasks and unfinished work',
+      run: (args) => {
+        const tasks = app.tasks.list({ activeOnly: (args || '').trim() !== 'all' });
+        if (!tasks.length) return app.print(`  ${t.dim('No saved tasks.')}`);
+        app.print([
+          t.bold('Tasks'),
+          ...tasks.slice(0, 20).map((task) => {
+            const state = task.status === 'completed' ? t.green('done') : task.status === 'failed' ? t.red('failed') : t.yellow(task.status);
+            return `  ${state.padEnd ? state.padEnd(18) : state} ${t.dim(task.id)}  ${task.prompt.slice(0, 72)}`;
+          }),
+          t.dim('  /resume <task-id> to continue unfinished work'),
+        ]);
+      },
+    },
+    {
+      name: 'resume',
+      args: '<task-id>',
+      description: 'Resume a saved unfinished task',
+      complete: () => app.tasks.list({ activeOnly: true }).map((task) => ({ value: task.id, hint: task.prompt.slice(0, 60) })),
+      run: (args) => {
+        const task = app.tasks.get((args || '').trim());
+        if (!task) throw new CosmoError(`Unknown task "${args || ''}".`, { hint: 'Use /tasks to list saved tasks.' });
+        if (['completed', 'cancelled'].includes(task.status)) throw new CosmoError(`Task ${task.id} is already ${task.status}.`);
+        const ch = app.requireChannel();
+        if (task.cwd !== app.state.cwd) {
+          app.print(`  ${t.yellow('!')} Task belongs to ${tildify(task.cwd, app.ctx.paths.home)}; switch folders with /cd first.`);
+          return;
+        }
+        app.state.activeTaskId = task.id;
+        app.tasks.update(task.id, { status: 'queued', phase: 'resume', lastError: null }, 'task.resumed');
+        return app.sendPrompt(task.prompt, { echo: false, taskId: task.id, agent: task.assignedAgent || ch.agent });
+      },
+    },
+    {
+      name: 'cancel',
+      args: '[task-id]',
+      description: 'Cancel the active or saved task',
+      complete: () => app.tasks.list({ activeOnly: true }).map((task) => ({ value: task.id, hint: task.prompt.slice(0, 60) })),
+      run: (args) => {
+        const taskId = (args || '').trim() || app.state.activeTaskId;
+        if (!taskId) throw new CosmoError('No active task.', { hint: 'Use /tasks to list unfinished tasks.' });
+        const task = app.tasks.get(taskId);
+        if (!task) throw new CosmoError(`Unknown task "${taskId}".`, { hint: 'Use /tasks to list saved tasks.' });
+        app.tasks.update(taskId, { status: 'cancelled', phase: 'cancelled' }, 'task.cancelled');
+        if (app.state.activeTaskId === taskId) {
+          app.state.running?.cancel?.();
+          app.state.activeTaskId = null;
+        }
+        app.print(`  ${t.green('✓')} Cancelled ${t.dim(taskId)}.`);
+      },
     },
     {
       name: 'channel',
@@ -388,7 +475,7 @@ export function registerBuiltinCommands(app) {
       description: 'Local AI breaks down & delegates task across agents with failover',
       run: (args) => {
         if (!args) throw new CosmoError('What should Mission Control delegate?', { hint: '/delegate audit src/ and fix edge cases' });
-        return runDelegation(args, app);
+        return app.startTask(args, () => runDelegation(args, app, app.state.activeTaskId));
       },
     },
     {
@@ -398,7 +485,7 @@ export function registerBuiltinCommands(app) {
       description: 'Ask multiple agents in parallel and synthesize their answers',
       run: (args) => {
         if (!args) throw new CosmoError('What should the agent council discuss?', { hint: '/council best way to structure git worktrees' });
-        return runCouncil(args, null, app);
+        return app.startTask(args, () => runCouncil(args, null, app));
       },
     },
     {

@@ -24,7 +24,7 @@ Sign in per profile from the interface with `/login <agent>`, or from the shell 
 
 ## Ask vs auto mode
 
-| Agent | ask (default) | auto |
+| Agent | ask | auto (default) |
 |---|---|---|
 | claude | `--allowedTools Read,Grep,Glob,WebSearch,WebFetch` | + `--permission-mode acceptEdits` |
 | copilot | `--deny-tool=write --deny-tool=shell --allow-all-urls` | `--allow-all-tools` |
