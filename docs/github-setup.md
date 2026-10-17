@@ -90,13 +90,16 @@ Push the first tag only **after** the manual publish: the tag starts `release.ym
 ### 4. Trusted publishing (no npm token in GitHub)
 1. On npmjs.com → package **Settings** → **Trusted Publisher** → **GitHub Actions**: enter your user/org, the repo, and the workflow file `release.yml`.
 2. Optional, but recommended: disallow token-based publishing for the package.
-3. `.github/workflows/release.yml` already has `permissions: id-token: write` and runs `npm publish --provenance --access public`. It installs npm 11 first (trusted publishing needs 11.5.1 or newer), checks that the tag matches `package.json`, and skips versions that are already on npm.
+3. `.github/workflows/release.yml` already has `permissions: id-token: write` (and `contents: write`, to create the tag when started by hand) and runs `npm publish --provenance --access public`. It installs npm 11 first (trusted publishing needs 11.5.1 or newer), checks that the tag matches `package.json`, and skips versions that are already on npm.
 
 ### 5. Release
+Either push a tag from your machine:
 ```bash
 npm version minor            # bumps package.json, commits, tags e.g. v0.4.0
 git push --follow-tags       # the tag triggers release.yml → npm publish with provenance
 ```
+or start it on GitHub without a tag: bump the version in `package.json` on `main` (a normal commit or PR), then **Actions → Release → Run workflow** and enter the commit (default `main`). The workflow publishes that commit's version and then creates the `vX.Y.Z` tag on it, tagged by you. It stops if that tag already exists on a different commit, and skips the publish if the version is already on npm (so running it on an already published commit only adds the missing tag).
+
 Docs: https://docs.npmjs.com/trusted-publishers
 
 ### Recommended repo settings
