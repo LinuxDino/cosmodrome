@@ -48,7 +48,7 @@ export class App {
       menuIndex: 0,
       menuDismissed: false,
       mode: 'ask',
-      router: false,
+      router: true,
       localModel: ctx.env.COSMO_LOCAL_MODEL || null,
       history: this.loadHistory(),
       histIdx: null,

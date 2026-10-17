@@ -1,12 +1,20 @@
 # Changelog
 
+## 0.6.0
+- New: router mode starts enabled so normal messages automatically flow through local orchestration without requiring a mode switch.
+- New: automatic local model selection prefers Qwen3.5, Qwen3, Ministral 3, Gemma 4, and Qwen2.5-Coder, with `COSMO_LOCAL_MODEL` and `/router <model>` overrides.
+- Improved: routing is concise and skips the local planning round for simple requests; advisor output is bounded and Claude is the preferred finalizer.
+- Improved: all headless agent prompts receive the Cosmodrome context and skills-first instruction, including delegated Claude work.
+- Fixed: Copilot headless runs explicitly request text output so edits no longer finish with an empty response.
+- Fixed: project-local skills and `COSMO.md` are loaded from the directory passed to `--cd`.
+
 ## 0.5.0
 - New: `COSMO.md` - one instructions file per project that every agent gets (Claude, Copilot, agy, Codex, OpenCode, the router). `/project init` creates it; this repo has its own.
 - New: model per agent and profile - `/model claude opus`, `/model copilot auto`, or `profiles.<name>.agents.<agent>.model` in the config. Used in the interface and in native launches.
 - Copilot CLI: flags checked against 1.0.98. Ask mode now uses Copilot's real permission patterns (`--deny-tool=write --deny-tool=shell`); the old `view/glob/grep` patterns don't exist. Copilot gets the shared instructions via `copilot-instructions.md` and the MCP servers via `--additional-mcp-config`.
 - New: local orchestrator with Ollama. `@ollama` runs a local model; `/router` lets it plan each message and hand parts to other agents; `/delegate` and `/council` split a task or ask several agents in parallel and merge the answers.
 - New: automatic switch to another installed agent when one hits a usage limit, with a cooldown; `/usage` shows runs, cost, cooldowns and switches.
-- New: shared rules, skills and MCP servers for all agents (`/skills`, `/mcp`), a live tool line under the spinner, clickable file links and `/preview` cards.
+- New: shared rules, skills and MCP servers for all agents (`/skills`, `/mcp`), a live tool line under the spinner, and clickable file links.
 - Subagents never get more rights than you (ask mode stays read-only) and one answer starts at most 4.
 - Agent sync only edits cosmo's own section of `CLAUDE.md`/`AGENTS.md`, never touches Claude's `.claude.json` (MCP goes through `--mcp-config`), leaves unreadable config files alone, and keeps skill names to safe folder names.
 - Fixed: a normal answer that mentions rate limits no longer counts as a usage limit; `@ollama` uses an installed model instead of a fixed default; plan tags no longer show in answers.

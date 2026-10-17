@@ -30,7 +30,7 @@ test('headless args per agent and mode', () => {
   assert.ok(buildHeadless(getAgent('codex'), 'x', { continued: true, mode: 'ask' }).join(' ').includes('read-only resume --last x'));
   const ollama = getAgent('local');
   assert.equal(ollama.name, 'ollama');
-  assert.deepEqual(buildHeadless(ollama, 'explain this', { model: 'qwen2.5-coder' }), ['run', 'qwen2.5-coder', 'explain this']);
+  assert.deepEqual(buildHeadless(ollama, 'explain this', { model: 'qwen3:8b' }), ['run', 'qwen3:8b', 'explain this']);
   const custom = getAgent('aider', { agents: { aider: { command: 'aider', headless: { args: ['--message', '{prompt}'], autoArgs: ['--yes'] } } } });
   assert.deepEqual(buildHeadless(custom, 'go', { mode: 'auto' }), ['--message', 'go', '--yes']);
 });

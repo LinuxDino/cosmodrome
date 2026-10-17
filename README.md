@@ -4,7 +4,7 @@
 
 ```
   .-'''''-.
-.'    ✦    '.◉    cosmodrome v0.5.0
+.'    ✦    '.◉    cosmodrome v0.6.0
  '-._____.-'      ~/work/api
 / commands · # channel · @ other agent · ! shell · ? keys
 
@@ -92,14 +92,19 @@ hello!                # chat with the current channel
 | `/modules` | Your custom commands |
 | `/model [agent] [model]` | Model per agent for this profile (`/model claude opus`, `/model copilot auto`) |
 | `/project [init]` | This project's `COSMO.md` |
-| `/router [on\|off\|model]` | Local Ollama model quickly routes complex work to parallel advisors; Claude finalizes when available |
+| `/router [on\|off\|model]` | Configure the local router; it is enabled by default and Claude finalizes advisor findings when available |
 | `/delegate <task>` · `/council <question>` | Split a task across agents · ask several agents in parallel and merge the answers |
 | `/usage` | Runs, cost, usage-limit cooldowns and automatic switches per agent |
 | `/skills`, `/mcp` | Shared rules, skills and MCP servers for all agents (`init`, `sync`) |
-| `/preview <file\|#n>` | Preview card for a file or artifact |
 | `/help`, `/clear`, `/exit` | |
 
 Full guide: [docs/interface.md](docs/interface.md).
+
+The interface is designed for one-step operation: write the task, and the local router
+selects the appropriate agents, runs useful research in parallel, and hands the findings
+to Claude or the best available finalizer. The router prefers `qwen3.5`, then `qwen3`,
+`ministral-3`, `gemma4`, and `qwen2.5-coder`; set `COSMO_LOCAL_MODEL` or use
+`/router <model>` when you need a specific local model.
 
 ### Artifacts
 

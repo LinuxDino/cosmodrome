@@ -11,8 +11,7 @@ export const AGENT_ROLES = {
 
 /**
  * Build the Cosmodrome Cooperation Briefing so an AI agent knows it is running inside
- * Cosmodrome, what sibling agents/skills/MCP tools exist, and how to use links, previews,
- * and subagent delegation.
+ * Cosmodrome, what sibling agents/skills/MCP tools exist, and how to use links and delegation.
  */
 export function buildCosmoContext({
   profile = 'default',
@@ -40,7 +39,6 @@ export function buildCosmoContext({
     `You are running inside Cosmodrome (channel #${profile}/${agent}, mode: ${mode}, workdir: ${cwd}).`,
     'Terminal UI formatting rules:',
     '- Format local files as clickable links: [filename](file://' + cwd + '/path/to/file#L10).',
-    '- To show a clean highlighted card/preview in the terminal, wrap it in a fenced block: ```preview Title ... ```.',
     '- To show live step progress in the Cosmodrome UI, you may emit: <cosmo:tool name="StepName" detail="short description" />',
   ];
 

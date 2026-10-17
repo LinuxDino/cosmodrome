@@ -180,7 +180,7 @@ export function initCustomizations(paths) {
       `# Cosmodrome Shared AI Rules\n\n` +
         `- Keep answers concise and actionable.\n` +
         `- Format file paths as clickable links: [basename](file:///absolute/path#L1).\n` +
-        `- Use \`\`\`preview Title blocks to show key architecture summaries or UI previews in the terminal.\n`,
+        `- Keep responses concise, link directly to relevant files, and separate findings from recommendations.\n`,
       { mode: 0o600 },
     );
     created.push(rulesFile);
@@ -192,7 +192,7 @@ export function initCustomizations(paths) {
     fs.mkdirSync(skillDir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(
       skillFile,
-      `---\nname: cosmo-orchestration\ndescription: Delegate subtasks across specialized agents (@claude, @codex, @agy, @copilot, @ollama) and render rich terminal previews.\n---\n\n` +
+      `---\nname: cosmo-orchestration\ndescription: Delegate subtasks across specialized agents (@claude, @codex, @agy, @copilot, @ollama) and return concise, attributable findings.\n---\n\n` +
         `# Cosmodrome Multi-Agent Cooperation\n\n` +
         `1. Emit \`<cosmo:tool name="ToolName" detail="what you are doing" />\` when performing multi-step reasoning.\n` +
         `2. Emit \`<cosmo:subagent agent="claude" mode="ask">subtask prompt</cosmo:subagent>\` to delegate work to another agent.\n` +
