@@ -17,52 +17,44 @@ export function charWidth(cp) {
   return 1;
 }
 
-const segmenter = typeof Intl?.Segmenter === 'function' ? new Intl.Segmenter() : null;
-
-/** What the user sees as one character ("e" + accent, 👨‍👩‍👧, 🇩🇪), so editing never splits one. */
-export function graphemes(s) {
-  s = String(s);
-  return segmenter ? Array.from(segmenter.segment(s), (x) => x.segment) : Array.from(s);
-}
-
-/**
- * Columns one grapheme takes. Emoji shown as emoji (✅, 🚀, 🇩🇪, or anything with the
- * emoji selector like ❤️) take two; symbols shown as text (✦ ⏺ ↪) take one.
- */
-export function clusterWidth(g) {
-  if (g === '\t') return 1; // shown as one space in the input box
-  if (/\p{Emoji_Presentation}/u.test(g) || (g.includes('\uFE0F') && /\p{Extended_Pictographic}/u.test(g))) return 2;
-  return charWidth(g.codePointAt(0));
-}
-
 export function width(s) {
   let w = 0;
-  for (const g of graphemes(stripAnsi(s))) w += clusterWidth(g);
+  for (const ch of stripAnsi(s)) w += charWidth(ch.codePointAt(0));
   return w;
 }
 
-/** Cut a (possibly colored) string to `max` columns. Escape sequences take no room. */
+/** Cut a (possibly colored) string to `max` columns. */
 export function truncate(s, max) {
   s = String(s);
   if (width(s) <= max) return s;
   let out = '';
   let w = 0;
+  let i = 0;
   let hadAnsi = false;
-  for (const part of s.split(new RegExp(`(${ANSI_RE.source})`))) {
-    if (!part) continue;
-    if (part[0] === '\x1b' && new RegExp(`^(?:${ANSI_RE.source})$`).test(part)) {
-      out += part;
-      hadAnsi = true;
-      continue;
+  let hadOsc8 = false;
+  while (i < s.length) {
+    if (s[i] === '\x1b') {
+      const m = s.slice(i).match(/^\x1b\[[0-9;?]*[ -\/]*[@-~]|^\x1b\][^\x07]*(?:\x07|\x1b\\)/);
+      if (m) {
+        out += m[0];
+        i += m[0].length;
+        if (m[0].startsWith('\x1b]8;')) hadOsc8 = true;
+        else hadAnsi = true;
+        continue;
+      }
     }
-    for (const g of graphemes(part)) {
-      const cw = clusterWidth(g);
-      if (w + cw > max - 1) return out + '…' + (hadAnsi ? '\x1b[0m' : '');
-      out += g;
-      w += cw;
+    const cp = s.codePointAt(i);
+    const ch = String.fromCodePoint(cp);
+    const cw = charWidth(cp);
+    if (w + cw > max - 1) {
+      out += '…';
+      break;
     }
+    out += ch;
+    w += cw;
+    i += ch.length;
   }
-  return hadAnsi ? out + '\x1b[0m' : out;
+  return out + (hadOsc8 ? '\x1b]8;;\x07' : '') + (hadAnsi ? '\x1b[0m' : '');
 }
 
 /**
@@ -82,14 +74,14 @@ export function sanitize(line) {
       out += part;
       continue;
     }
-    for (const ch of graphemes(part)) {
+    for (const ch of part) {
       if (ch === '\t') {
         const n = 8 - (col % 8);
         out += ' '.repeat(n);
         col += n;
       } else if (!/[\x00-\x1f\x7f]/.test(ch)) {
         out += ch;
-        col += clusterWidth(ch);
+        col += charWidth(ch.codePointAt(0));
       }
     }
   }
@@ -107,8 +99,8 @@ export function pad(s, n) {
  */
 const ASCII = {
   '⏺': '*', '⎿': '`', '↪': '>', '╭': '+', '╮': '+', '╰': '+', '╯': '+', '─': '-', '│': '|', '┌': '+', '└': '+',
-  '❯': '>', '•': '*', '✓': 'v', '✗': 'x', '⏵': '>', '●': '*', '⎇': '@', '↵': '~', '…': '.', '·': '-',
-  '✦': '*', '✧': '+', '◉': 'o', '✶': '*', '✸': '*', '✹': '*', '✺': '*', '‾': '-', '⇧': '^',
+  '├': '+', '❯': '>', '•': '*', '✓': 'v', '✗': 'x', '⏵': '>', '●': '*', '⎇': '@', '↵': '~', '…': '.', '·': '-',
+  '✦': '*', '✧': '+', '◉': 'o', '✶': '*', '✸': '*', '✹': '*', '✺': '*', '‾': '-', '⇧': '^', '⟳': '~', '▸': '>',
 };
 const ASCII_RE = new RegExp(`[${Object.keys(ASCII).join('')}]`, 'g');
 export const toAscii = (s) => String(s).replace(ASCII_RE, (ch) => ASCII[ch]);

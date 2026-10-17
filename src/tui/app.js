@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
-import { Screen, sanitize, graphemes } from './screen.js';
+import { Screen, sanitize } from './screen.js';
 import { t, pickGlyphs, reducedMotion } from './theme.js';
 import { header } from './components/header.js';
 import { promptBox } from './components/promptBox.js';
 import { menu } from './components/menu.js';
 import { statusLine } from './components/statusLine.js';
-import { spinnerLine, pickVerb } from './components/spinner.js';
+import { spinnerLine, subagentLines, pickVerb } from './components/spinner.js';
 import { createMarkdownState, renderMarkdownLine } from './markdown.js';
 import { registerBuiltinCommands } from './commands.js';
 import { ChannelManager, recordRun } from './channels.js';
@@ -19,6 +19,8 @@ import { tildify } from '../paths.js';
 import { which } from '../system.js';
 import { CosmoError, closest, failureHint } from '../ui.js';
 import { saveArtifact, artifactsRoot, listArtifacts } from '../artifacts.js';
+import { UsageTracker } from '../usage.js';
+import { parseSubagentCalls, runDelegation, runCouncil } from '../orchestrator.js';
 
 const VERSION = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 const HISTORY_MAX = 500;
@@ -38,12 +40,15 @@ export class App {
     this.lastResponse = null;
     this.exited = false;
     this.historyFile = path.join(path.dirname(ctx.paths.stationDir), 'history.txt');
+    this.usage = new UsageTracker(path.join(path.dirname(ctx.paths.stationDir), 'usage.json'));
     this.state = {
       input: [],
       cursor: 0,
       menuIndex: 0,
       menuDismissed: false,
       mode: 'ask',
+      router: false,
+      localModel: ctx.env.COSMO_LOCAL_MODEL || null,
       history: this.loadHistory(),
       histIdx: null,
       draft: null,
@@ -62,7 +67,7 @@ export class App {
   // ------------------------------------------------------------ plumbing
 
   cliCtx() {
-    return { ...this.ctx, cwd: this.state.cwd, interactive: true, inTui: true };
+    return { ...this.ctx, cwd: this.state.cwd, interactive: true };
   }
 
   reloadConfig() {
@@ -98,6 +103,8 @@ export class App {
       },
       print: (x) => app.print(x),
       ask: (prompt, opts) => app.sendPrompt(prompt, { echo: false, ...opts }),
+      delegate: (prompt) => runDelegation(prompt, app),
+      council: (prompt, agents) => runCouncil(prompt, agents, app),
       get channel() {
         return app.channels.current ? { ...app.channels.current } : null;
       },
@@ -144,29 +151,8 @@ export class App {
       this.resizeTimer = setTimeout(() => this.render(), 50);
     };
     process.stdout.on('resize', this.resizeHandler);
-    this.restoreOnExit = () => {
-      this.state.running?.signal?.('SIGTERM');
-      this.restoreTerminal();
-    };
+    this.restoreOnExit = () => this.restoreTerminal();
     process.on('exit', this.restoreOnExit);
-    // A bug must not leave the terminal in raw mode or an agent running on its own.
-    this.crashHandler = (err) => {
-      this.state.running?.signal?.('SIGTERM');
-      this.screen.clear();
-      this.restoreTerminal();
-      process.stderr.write(`\n✗ cosmo crashed: ${err?.stack || err}\n`);
-      process.exit(1);
-    };
-    process.on('uncaughtException', this.crashHandler);
-    process.on('unhandledRejection', this.crashHandler);
-    // Ctrl+Z: give the terminal back to the shell; `fg` brings the interface back.
-    this.contHandler = () => {
-      if (this.exited) return;
-      process.stdin.setRawMode(true);
-      process.stdout.write('\x1b[?2004h');
-      this.render();
-    };
-    process.on('SIGCONT', this.contHandler);
     // Agents run in their own process group, so pass a closing terminal on to them.
     for (const [sig, code] of [['SIGHUP', 129], ['SIGTERM', 143]]) {
       process.once(sig, () => {
@@ -176,9 +162,6 @@ export class App {
       });
     }
 
-    // Start on a clean window: push what is on screen up into the scrollback (nothing is
-    // erased), then begin at the top-left corner. COSMO_NO_CLEAR=1 starts where the cursor is.
-    if (this.ctx.env.COSMO_NO_CLEAR !== '1') process.stdout.write('\n'.repeat(this.screen.rows) + '\x1b[H');
     this.print(header({ version: VERSION, cwd: tildify(this.state.cwd, this.ctx.paths.home), cols: this.screen.cols, t, glyphs: this.glyphs }));
     for (const e of this.modules.errors) this.print(`  ${t.red('✗')} module ${e.name}: ${t.dim(e.message)}`);
     if (!Object.keys(this.config.profiles).length) {
@@ -268,7 +251,7 @@ export class App {
 
   clearScreen() {
     this.screen.clear();
-    process.stdout.write('\x1b[2J\x1b[H'); // scrollback stays
+    process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
     this.screen.lines = 0;
     this.print(header({ version: VERSION, cwd: tildify(this.state.cwd, this.ctx.paths.home), cols: this.screen.cols, t, glyphs: this.glyphs, compact: true }));
   }
@@ -362,7 +345,22 @@ export class App {
     const cols = this.screen.cols;
     const lines = [];
     if (s.running) {
-      lines.push(spinnerLine({ frame: s.spinnerFrame, verb: s.running.verb, agent: s.running.agent, startedAt: s.running.startedAt, t, glyphs: this.glyphs, still: this.still }));
+      lines.push(
+        spinnerLine({
+          frame: s.spinnerFrame,
+          verb: s.running.verb,
+          agent: s.running.agent,
+          startedAt: s.running.startedAt,
+          action: s.running.action,
+          toolCount: s.running.toolCount,
+          t,
+          glyphs: this.glyphs,
+          still: this.still,
+        }),
+      );
+      if (s.running.subagents?.length) {
+        lines.push(...subagentLines(s.running.subagents, { t, glyphs: this.glyphs }));
+      }
       lines.push('');
     }
     const top = lines.length;
@@ -382,7 +380,8 @@ export class App {
     if (s.menuIndex >= sugg.length) s.menuIndex = 0;
     if (sugg.length) lines.push(...menu({ items: sugg, index: s.menuIndex, t, maxItems: Math.min(8, budget - box.lines.length - 1) }));
     else {
-      lines.push(...statusLine({ channel: this.channels.id, mode: s.mode, ghUser: this.channels.ghUser, cwd: tildify(s.cwd, this.ctx.paths.home), notice: s.notice, items: this.statusItemValues(), t, cols }));
+      const items = [...(s.router ? ['✦ router'] : []), ...this.statusItemValues()];
+      lines.push(...statusLine({ channel: this.channels.id, mode: s.mode, ghUser: this.channels.ghUser, cwd: tildify(s.cwd, this.ctx.paths.home), notice: s.notice, items, t, cols }));
     }
     this.screen.render(lines, { row: top + box.cursor.row, col: box.cursor.col });
   }
@@ -407,7 +406,7 @@ export class App {
   // ------------------------------------------------------------ input
 
   setInput(text) {
-    this.state.input = graphemes(text);
+    this.state.input = Array.from(text);
     this.state.cursor = this.state.input.length;
     this.state.menuIndex = 0;
     this.state.menuDismissed = false;
@@ -415,7 +414,7 @@ export class App {
 
   insert(str) {
     const s = this.state;
-    const chars = graphemes(str);
+    const chars = Array.from(str);
     s.input.splice(s.cursor, 0, ...chars);
     s.cursor += chars.length;
     s.menuDismissed = false;
@@ -509,15 +508,6 @@ export class App {
       else if (sugg.length) this.setInput(sugg[s.menuIndex].value);
       return this.render();
     }
-    // New line: Alt+Enter, Ctrl+J (sends "enter", where Enter sends "return"), or "\" + Enter.
-    if (key.name === 'enter' && !key.meta && str === '\n') {
-      this.insert('\n');
-      return this.render();
-    }
-    if ((key.name === 'return' || key.name === 'enter') && !key.meta && s.input[s.cursor - 1] === '\\') {
-      s.input.splice(s.cursor - 1, 1, '\n');
-      return this.render();
-    }
     if (key.name === 'return' || key.name === 'enter') {
       if (key.meta) {
         this.insert('\n');
@@ -556,7 +546,6 @@ export class App {
     } else if (key.ctrl && key.name === 'k') s.input.splice(s.cursor);
     else if (key.ctrl && key.name === 'w') this.deleteWordBack();
     else if (key.ctrl && key.name === 'l') return this.clearScreen();
-    else if (key.ctrl && key.name === 'z') return this.suspendToShell();
     else if (key.ctrl && key.name === 'o') this.channels.cycleAgent();
     else if (str === '?' && !s.input.length && !key.ctrl && !key.meta) return this.printHelp();
     else if (str && !key.ctrl && !key.meta && !/[\x00-\x08\x0b-\x1f\x7f]/.test(str)) this.insert(str.replace(/\r\n?/g, '\n'));
@@ -609,14 +598,27 @@ export class App {
       if (!m[2].trim()) throw new CosmoError(`Type a message after @${agent}.`, { hint: `e.g. @${agent} review my last commit` });
       return this.sendPrompt(m[2].trim(), { agent, echo: false });
     }
+    if (this.state.router) {
+      return runDelegation(text, this);
+    }
     return this.sendPrompt(text, { echo: false });
   }
 
   // ------------------------------------------------------------ running things
 
-  startRun(agent, handle) {
+  startRun(agent, handle, subagents = null) {
     const s = this.state;
-    s.running = { agent, verb: pickVerb(), startedAt: Date.now(), cancel: handle.cancel, signal: handle.signal };
+    s.running = {
+      agent,
+      verb: pickVerb(),
+      startedAt: Date.now(),
+      action: null,
+      toolCount: 0,
+      subagents,
+      cancel: handle.cancel,
+      signal: handle.signal,
+    };
+    clearInterval(this.spinnerTimer);
     this.spinnerTimer = setInterval(() => {
       s.spinnerFrame++;
       this.render();
@@ -626,23 +628,15 @@ export class App {
   endRun() {
     clearInterval(this.spinnerTimer);
     this.state.running = null;
-    if (this.state.notice?.startsWith('Interrupting')) this.state.notice = null;
+    if (this.state.notice === 'Interrupting…') this.state.notice = null;
   }
 
   cancelRun() {
     const r = this.state.running;
     if (!r) return;
     r.cancel?.();
-    this.state.notice = r.interrupted ? 'Interrupting… (stopping it now)' : 'Interrupting… (esc again to force-stop)';
-    r.interrupted = true;
+    this.state.notice = 'Interrupting…';
     this.render();
-  }
-
-  suspendToShell() {
-    this.screen.clear();
-    this.restoreTerminal();
-    process.stdout.write(t.dim('cosmo is in the background - type fg to come back\n'));
-    process.kill(process.pid, 'SIGTSTP');
   }
 
   /** Stream lines of an answer with ⏺ on the first line, like Claude Code. */
@@ -659,21 +653,49 @@ export class App {
     };
   }
 
-  async sendPrompt(prompt, { agent: agentOverride, saveAs, echo = true } = {}) {
+  async sendPrompt(
+    prompt,
+    {
+      agent: agentOverride,
+      mode: modeOverride,
+      saveAs,
+      echo = true,
+      quietMeta = false,
+      skipSubagentSpawn = false,
+      triedAgents = new Set(),
+    } = {},
+  ) {
     const ch = this.requireChannel();
     if (echo) this.print(`${t.gray('> ')}${t.gray(prompt)}`);
-    const agentName = agentOverride ? canonicalAgentName(agentOverride, this.config) : ch.agent;
+    let agentName = agentOverride ? canonicalAgentName(agentOverride, this.config) : ch.agent;
+
+    // Silent pre-run switch if the chosen provider is currently on usage cooldown
+    if (agentName && this.usage.isThrottled(ch.profile, agentName)) {
+      const picked = this.usage.pickAgent({
+        profile: ch.profile,
+        preferred: agentName,
+        candidates: agentNames(this.config),
+        isInstalled: (a) => this.channels.installed(a),
+        exclude: triedAgents,
+      });
+      if (picked.switched) {
+        this.print(`  ${t.yellow('⟳')} ${t.dim(`@${agentName} is on usage cooldown — switched silently to`)} ${t.bold(`@${picked.agent}`)}`);
+        agentName = picked.agent;
+      }
+    }
+
     const agent = getAgent(agentName, this.config, this.ctx.platform);
     if (!agent) throw new CosmoError(`Unknown agent "${agentOverride || agentName}".`, { hint: `Agents: ${agentNames(this.config).join(', ')}` });
     const bin = this.cli.requireBin(agent, this.ctx);
     const session = this.channels.session(ch.profile, agent.name);
     if (session.moved) this.print(t.dim(`  new conversation for ${tildify(this.state.cwd, this.ctx.paths.home)} (agents keep conversations per folder)`));
-    const args = buildHeadless(agent, prompt, { ...session, mode: this.state.mode });
+    const runMode = modeOverride || this.state.mode;
+    const args = buildHeadless(agent, prompt, { ...session, mode: runMode, model: this.state.localModel });
     if (!args) {
       throw new CosmoError(`${agent.label} has no one-shot mode configured.`, { hint: 'Use /native, or add "headless" to the agent in cosmo config edit.' });
     }
     const plan = this.cli.plan(this.config, ch.profile, agent, this.cliCtx());
-    if (agentOverride) this.print(t.dim(`  asking @${agent.name} in #${ch.profile}`));
+    if (agentOverride && !quietMeta) this.print(t.dim(`  asking @${agent.name} in #${ch.profile}`));
 
     let write = this.makeWriter();
     const startedAt = Date.now();
@@ -688,6 +710,10 @@ export class App {
         write(text);
       },
       onTool: (name, detail) => {
+        if (this.state.running) {
+          this.state.running.action = { name, detail };
+          this.state.running.toolCount = (this.state.running.toolCount || 0) + 1;
+        }
         this.print(`${t.magenta('⏺')} ${t.bold(name)}${detail ? t.dim(`(${detail})`) : ''}`);
         write = this.makeWriter();
       },
@@ -695,31 +721,209 @@ export class App {
     this.startRun(agent.name, handle);
     this.render();
     const res = await handle.promise;
+    const toolCount = this.state.running?.toolCount || 0;
     this.endRun();
 
+    const durationMs = Date.now() - startedAt;
+    const { limited } = this.usage.record(ch.profile, agent.name, res, durationMs);
+    triedAgents.add(agent.name);
+
+    // Silent usage failover: if this provider hit a rate/quota limit, switch behind the scenes
+    if (limited && !res.cancelled) {
+      const next = this.usage.pickAgent({
+        profile: ch.profile,
+        preferred: agent.name,
+        candidates: agentNames(this.config),
+        isInstalled: (a) => this.channels.installed(a),
+        exclude: triedAgents,
+      });
+      if (next.switched && next.agent !== agent.name) {
+        this.usage.recordFailover({ profile: ch.profile, from: agent.name, to: next.agent, reason: 'usage limit' });
+        this.print(`  ${t.yellow('⟳')} ${t.yellow(`${agent.label} hit a usage limit — switching silently to @${next.agent}`)}`);
+        return this.sendPrompt(prompt, {
+          agent: next.agent,
+          mode: modeOverride,
+          saveAs,
+          echo: false,
+          quietMeta,
+          skipSubagentSpawn,
+          triedAgents,
+        });
+      }
+    }
+
     recordRun(session, res);
-    const secs = Math.round((Date.now() - startedAt) / 1000);
+    const secs = Math.round(durationMs / 1000);
     const meta = [agent.name];
+    if (toolCount > 0) meta.push(`${toolCount} tool${toolCount === 1 ? '' : 's'}`);
     if (res.result?.duration_ms) meta.push(`${Math.round(res.result.duration_ms / 1000)}s`);
     else if (secs) meta.push(`${secs}s`);
     if (res.result?.total_cost_usd) meta.push(`$${res.result.total_cost_usd.toFixed(3)}`);
     if (res.cancelled) meta.push('interrupted');
     else if (res.code) meta.push(`exit ${res.code}`);
-    if (!res.text.trim() && !res.cancelled && res.code === 0) {
+    if (!res.text.trim() && !res.cancelled && res.code === 0 && !quietMeta) {
       this.print(t.dim(`  (no output)${agent.headless?.emptyHint ? ' ' + agent.headless.emptyHint : ''}`));
     }
     if (res.code && !res.cancelled && res.stderr.trim()) {
       this.print(res.stderr.trim().split('\n').slice(-6).map((l) => `  ${t.red(sanitize(l))}`));
     }
-    this.print(t.dim(`  ⎿ ${meta.join(' · ')}`));
+    if (!quietMeta) this.print(t.dim(`  ⎿ ${meta.join(' · ')}`));
     if (res.code && !res.cancelled) {
       const hint = failureHint({ agent: agent.name, label: agent.label, code: res.code, output: `${res.stderr}\n${res.result?.result || ''}\n${res.text}` });
       this.print(`  ${t.yellow('!')} ${hint}`);
     }
 
+    // If the agent spawned subagents via <cosmo:subagent>, run them now
+    if (!skipSubagentSpawn && !res.cancelled && res.text) {
+      const subCalls = parseSubagentCalls(res.text);
+      if (subCalls.length) {
+        return this.executeSubagents(subCalls, { parentPrompt: prompt, synthesizeWith: agent.name, saveAs });
+      }
+    }
+
     this.lastResponse = { text: res.text, prompt, channel: `${ch.profile}/${agent.name}`, title: saveAs?.title };
     if (saveAs && res.text.trim() && !res.cancelled) this.saveResponse({ ...this.lastResponse, ...saveAs });
     return res;
+  }
+
+  /**
+   * Run one or more subagents concurrently (with live Subagent Tree HUD and automatic usage failover).
+   */
+  async executeSubagents(calls, { parentPrompt = '', synthesizeWith = null, council = false, saveAs = null } = {}) {
+    const ch = this.requireChannel();
+    const activeHandles = new Set();
+    const subStates = calls.map((c) => {
+      const picked = this.usage.pickAgent({
+        profile: ch.profile,
+        preferred: canonicalAgentName(c.agent, this.config) || ch.agent,
+        candidates: agentNames(this.config),
+        isInstalled: (a) => this.channels.installed(a),
+      });
+      return {
+        agent: picked.agent,
+        mode: c.mode || 'ask',
+        prompt: c.prompt,
+        status: 'running',
+        action: 'starting…',
+        startedAt: Date.now(),
+        endedAt: null,
+      };
+    });
+
+    this.startRun(
+      council ? 'council' : `${subStates.length} subagent${subStates.length === 1 ? '' : 's'}`,
+      {
+        cancel: () => {
+          for (const h of activeHandles) h.cancel?.();
+        },
+        signal: (sig) => {
+          for (const h of activeHandles) h.signal?.(sig);
+        },
+      },
+      subStates,
+    );
+    this.render();
+
+    const runSingleSub = async (sub) => {
+      const tried = new Set();
+      for (;;) {
+        const agent = getAgent(sub.agent, this.config, this.ctx.platform);
+        if (!agent || !this.channels.installed(agent.name)) {
+          sub.status = 'error';
+          sub.action = 'not installed';
+          sub.endedAt = Date.now();
+          return { agent: sub.agent, code: 127, text: '', stderr: 'not installed' };
+        }
+        const bin = this.cli.requireBin(agent, this.ctx);
+        const args = buildHeadless(agent, sub.prompt, { continued: false, mode: sub.mode, model: this.state.localModel });
+        const plan = this.cli.plan(this.config, ch.profile, agent, this.cliCtx());
+        const t0 = Date.now();
+        const handle = runProcess({
+          bin,
+          args,
+          env: plan.env,
+          cwd: this.state.cwd,
+          format: agent.headless?.stream || 'text',
+          onTool: (name, detail) => {
+            sub.action = `${name}${detail ? `(${detail.slice(0, 28)})` : ''}`;
+            if (this.state.running) {
+              this.state.running.action = { name: `@${sub.agent}:${name}`, detail };
+              this.state.running.toolCount = (this.state.running.toolCount || 0) + 1;
+            }
+            this.render();
+          },
+          onText: (line) => {
+            if (line.trim()) sub.action = line.trim().slice(0, 36);
+          },
+        });
+        activeHandles.add(handle);
+        const res = await handle.promise;
+        activeHandles.delete(handle);
+
+        const { limited } = this.usage.record(ch.profile, agent.name, res, Date.now() - t0);
+        tried.add(agent.name);
+        if (limited && !res.cancelled) {
+          const next = this.usage.pickAgent({
+            profile: ch.profile,
+            preferred: agent.name,
+            candidates: agentNames(this.config),
+            isInstalled: (a) => this.channels.installed(a),
+            exclude: tried,
+          });
+          if (next.switched && next.agent !== agent.name) {
+            this.usage.recordFailover({ profile: ch.profile, from: agent.name, to: next.agent, reason: 'usage limit' });
+            sub.status = 'switched';
+            sub.action = `${agent.name} limit → @${next.agent}`;
+            sub.agent = next.agent;
+            this.render();
+            continue;
+          }
+        }
+        sub.endedAt = Date.now();
+        sub.status = res.code === 0 ? 'done' : 'error';
+        sub.action = res.code === 0 ? 'completed' : `exit ${res.code}`;
+        this.render();
+        return { agent: agent.name, ...res };
+      }
+    };
+
+    const results = await Promise.all(subStates.map((s) => runSingleSub(s)));
+    this.endRun();
+
+    for (const r of results) {
+      this.print(`${t.magenta('╭─')} ${t.bold(`@${r.agent}`)} ${t.dim(r.code === 0 ? '✓ completed' : `✗ exit ${r.code}`)}`);
+      if (r.text.trim()) {
+        const md = createMarkdownState();
+        const lines = r.text
+          .trim()
+          .split('\n')
+          .map((l) => `${t.magenta('│')} ${renderMarkdownLine(sanitize(l), md, t)}`);
+        this.print(lines);
+      }
+      this.print(t.magenta('╰' + '─'.repeat(28)));
+    }
+
+    const combinedText = results
+      .filter((r) => r.text.trim())
+      .map((r) => `## @${r.agent}\n${r.text.trim()}`)
+      .join('\n\n');
+
+    if (synthesizeWith && results.length > 1 && this.channels.installed(synthesizeWith) && combinedText) {
+      const synthPrompt =
+        `Synthesize the following ${results.length} agent responses to "${parentPrompt}". ` +
+        `Highlight consensus, key trade-offs, and actionable next steps with clickable file:// links:\n\n${combinedText}`;
+      return this.sendPrompt(synthPrompt, {
+        agent: synthesizeWith,
+        mode: 'ask',
+        echo: false,
+        skipSubagentSpawn: true,
+        saveAs,
+      });
+    }
+
+    this.lastResponse = { text: combinedText, prompt: parentPrompt, channel: `${ch.profile}/multi`, title: saveAs?.title };
+    if (saveAs && combinedText) this.saveResponse({ ...this.lastResponse, ...saveAs });
+    return { code: 0, text: combinedText, results };
   }
 
   saveResponse({ text, prompt, channel, title, kind = 'note' }) {

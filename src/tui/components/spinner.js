@@ -21,7 +21,40 @@ export function orbitFrame(frame, { t, glyphs }) {
   return `${t.dim('(')}${cells.join('')}${t.dim(')')}`;
 }
 
-export function spinnerLine({ frame, verb, agent, startedAt, t, glyphs = { star: '✦', sat: '◉' }, still = false }) {
+export function spinnerLine({
+  frame,
+  verb,
+  agent,
+  startedAt,
+  action = null,
+  toolCount = 0,
+  t,
+  glyphs = { star: '✦', sat: '◉' },
+  still = false,
+}) {
   const secs = Math.floor((Date.now() - startedAt) / 1000);
-  return `${orbitFrame(still ? null : frame, { t, glyphs })}  ${t.magenta(`${verb}…`)} ${t.dim(`(${agent} · ${secs}s · esc to interrupt)`)}`;
+  const step = action ? ` ${t.cyan('▸')} ${t.bold(action.name)}${action.detail ? t.dim(`(${action.detail})`) : ''}` : '';
+  const tools = toolCount > 0 ? ` · ${toolCount} tool${toolCount === 1 ? '' : 's'}` : '';
+  return `${orbitFrame(still ? null : frame, { t, glyphs })}  ${t.magenta(`${verb}…`)}${step} ${t.dim(`(${agent}${tools} · ${secs}s · esc to interrupt)`)}`;
+}
+
+/**
+ * Render a live tree of running/finished subagents under the spinner line.
+ */
+export function subagentLines(subagents = [], { t, glyphs = { star: '✦', sat: '◉' } }) {
+  if (!subagents.length) return [];
+  return subagents.map((sub, i) => {
+    const branch = i === subagents.length - 1 ? '└─' : '├─';
+    const icon =
+      sub.status === 'done'
+        ? t.green('✓')
+        : sub.status === 'error'
+          ? t.red('✗')
+          : sub.status === 'switched'
+            ? t.yellow('⟳')
+            : t.cyan(glyphs.sat);
+    const secs = sub.startedAt ? `${Math.floor(((sub.endedAt || Date.now()) - sub.startedAt) / 1000)}s` : '';
+    const detail = sub.action ? `${sub.action}` : sub.prompt ? sub.prompt.slice(0, 42) : sub.status;
+    return `  ${t.dim(branch)} ${icon} ${t.bold(`@${sub.agent.padEnd(8)}`)} ${t.dim(detail)}${secs ? t.dim(` · ${secs}`) : ''}`;
+  });
 }

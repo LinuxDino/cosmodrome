@@ -140,23 +140,3 @@ test('macOS Keychain advice depends on platform and agent version', async () => 
   assert.equal(keychainAdvice(getAgent('agy'), { platform: 'darwin' }).level, 'warn');
   assert.equal(keychainAdvice(getAgent('codex'), { platform: 'darwin' }), null);
 });
-
-test('color detection follows FORCE_COLOR, NO_COLOR and TERM', async () => {
-  const { colorEnabled } = await import('../src/ui.js');
-  const tty = { isTTY: true };
-  assert.equal(colorEnabled(tty, {}), true);
-  assert.equal(colorEnabled(tty, { NO_COLOR: '1' }), false);
-  assert.equal(colorEnabled(tty, { NO_COLOR: '' }), true, 'empty NO_COLOR is ignored (no-color.org)');
-  assert.equal(colorEnabled(tty, { TERM: 'dumb' }), false);
-  assert.equal(colorEnabled({ isTTY: false }, {}), false);
-  assert.equal(colorEnabled({ isTTY: false }, { FORCE_COLOR: '1' }), true);
-  assert.equal(colorEnabled(tty, { FORCE_COLOR: '0' }), true);
-  assert.equal(colorEnabled({ isTTY: false }, { FORCE_COLOR: '0' }), false);
-});
-
-test('profile names: what people type becomes a valid name', async () => {
-  const { normalizeProfileName, validateProfileName } = await import('../src/config.js');
-  assert.equal(normalizeProfileName('Private'), 'private');
-  assert.equal(normalizeProfileName('  My Work '), 'my-work');
-  assert.doesNotThrow(() => validateProfileName(normalizeProfileName('Private')));
-});

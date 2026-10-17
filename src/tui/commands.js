@@ -6,8 +6,9 @@ import { tildify, expandHome } from '../paths.js';
 import { which } from '../system.js';
 import { CosmoError } from '../ui.js';
 import { listArtifacts, saveArtifact, zipArtifacts, artifactsRoot } from '../artifacts.js';
-import { createMarkdownState, renderMarkdownLine } from './markdown.js';
-import { orbitMap } from './components/orbitMap.js';
+import { createMarkdownState, renderMarkdownLine, renderPreviewBox } from './markdown.js';
+import { runDelegation, runCouncil, listOllamaModels, pickLocalModel } from '../orchestrator.js';
+import { loadSkills, loadRules, loadMcpServers, initCustomizations, syncAgentCustomizations } from '../skills.js';
 
 export const RESEARCH_PROMPT = (topic) =>
   `Research this topic on the web: ${topic}
@@ -89,20 +90,6 @@ export function registerBuiltinCommands(app) {
       run: () => {
         const rows = app.channels.all();
         if (!rows.length) return app.print(`  ${t.yellow('!')} No profiles yet - /init`);
-        if (app.screen.cols >= 50) {
-          const lines = [];
-          for (const profile of [...new Set(rows.map((r) => r.profile))]) {
-            const mine = rows.filter((r) => r.profile === profile);
-            const agents = mine
-              .filter((r) => r.installed)
-              .sort((a, b) => (b.id === app.channels.id) - (a.id === app.channels.id) || b.isDefault - a.isDefault)
-              .map((r) => ({ name: r.agent, current: r.id === app.channels.id, isDefault: r.isDefault }));
-            const missing = mine.filter((r) => !r.installed).map((r) => r.agent);
-            lines.push(...orbitMap({ profile, agents, missing, t, glyphs: app.glyphs }), '');
-          }
-          lines.push(t.dim('  switch with #profile/agent, e.g. #work/copilot'));
-          return app.print(lines);
-        }
         app.print(
           rows.map((ch) => {
             const mark = ch.id === app.channels.id ? t.magenta('●') : ' ';
@@ -311,6 +298,182 @@ export function registerBuiltinCommands(app) {
           t.dim(`  ${dir}`),
           ...(loaded.length ? loaded.map((m) => `  ${t.green('✓')} ${m.name}  ${t.dim(m.commands.map((c) => '/' + c).join(' '))}`) : [`  ${t.dim('no modules yet')}`]),
           ...errors.map((e) => `  ${t.red('✗')} ${e.name}  ${t.dim(e.message)}`),
+        ]);
+      },
+    },
+    {
+      name: 'delegate',
+      aliases: ['d'],
+      args: '<task>',
+      description: 'Local AI breaks down & delegates task across agents with failover',
+      run: (args) => {
+        if (!args) throw new CosmoError('What should Mission Control delegate?', { hint: '/delegate audit src/ and fix edge cases' });
+        return runDelegation(args, app);
+      },
+    },
+    {
+      name: 'council',
+      aliases: ['compare'],
+      args: '<question>',
+      description: 'Ask multiple agents in parallel and synthesize their answers',
+      run: (args) => {
+        if (!args) throw new CosmoError('What should the agent council discuss?', { hint: '/council best way to structure git worktrees' });
+        return runCouncil(args, null, app);
+      },
+    },
+    {
+      name: 'router',
+      args: '[on|off|<model>]',
+      description: 'Toggle local Ollama router mode or pick the local model',
+      complete: () => [
+        { value: 'on', hint: 'route default messages through local AI orchestrator' },
+        { value: 'off', hint: 'send default messages directly to active channel' },
+        ...listOllamaModels({ env: app.ctx.env }).map((m) => ({ value: m, hint: 'local Ollama model' })),
+      ],
+      run: (args) => {
+        const a = (args || '').trim();
+        if (!a) {
+          app.state.router = !app.state.router;
+        } else if (a === 'on') {
+          app.state.router = true;
+        } else if (a === 'off') {
+          app.state.router = false;
+        } else {
+          app.state.localModel = a;
+          app.state.router = true;
+        }
+        const models = listOllamaModels({ env: app.ctx.env });
+        const model = app.state.localModel || pickLocalModel(models, app.config, app.ctx.env);
+        app.print(
+          app.state.router
+            ? `  ${t.magenta('✦')} ${t.bold('Local AI router ON')} ${t.dim(`· model: ${model} · auto-delegates & switches on usage limits`)}`
+            : `  ${t.dim('Local AI router OFF · messages go directly to #' + (app.channels.id || 'channel'))}`,
+        );
+      },
+    },
+    {
+      name: 'preview',
+      aliases: ['p'],
+      args: '<file|#artifact>',
+      description: 'Render an inline terminal preview card for a file or artifact',
+      complete: artifactCompletions,
+      run: (args) => {
+        const q = (args || '').trim();
+        if (!q) throw new CosmoError('Specify a file path or artifact number to preview.', { hint: '/preview package.json  or  /preview 1' });
+        const candidate = path.resolve(app.state.cwd, expandHome(q, app.ctx.paths.home));
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+          const lines = fs.readFileSync(candidate, 'utf8').split('\n');
+          const rel = path.relative(app.state.cwd, candidate) || path.basename(candidate);
+          app.print(renderPreviewBox({ title: rel, url: `file://${candidate}`, lines, t }));
+          return;
+        }
+        const [a] = pickArtifacts(artifactsOf(app).list, q);
+        const main = a.files[0] ? path.join(a.dir, a.files[0]) : null;
+        const lines = main && fs.existsSync(main) ? fs.readFileSync(main, 'utf8').split('\n') : [];
+        app.print(renderPreviewBox({ title: `#${a.n} ${a.title}`, url: `file://${main || a.dir}`, lines, t }));
+      },
+    },
+    {
+      name: 'skills',
+      args: '[init|sync]',
+      description: 'Shared rules & skills across all agents',
+      complete: () => [
+        { value: 'init', hint: 'create starter rules.md, skills/ and mcp.json' },
+        { value: 'sync', hint: 'sync rules, skills and MCP to all profiles now' },
+      ],
+      run: (args) => {
+        const sub = (args || '').trim();
+        if (sub === 'init') {
+          const created = initCustomizations(app.ctx.paths);
+          app.print(
+            created.length
+              ? created.map((f) => `  ${t.green('✓')} created ${tildify(f, app.ctx.paths.home)}`)
+              : `  ${t.dim('Skills, rules.md and mcp.json already exist.')}`,
+          );
+          return;
+        }
+        if (sub === 'sync') {
+          let count = 0;
+          for (const pName of Object.keys(app.config.profiles || {})) {
+            for (const aName of agentNames(app.config)) {
+              const agent = getAgent(aName, app.config, app.ctx.platform);
+              const agentDir = path.join(app.ctx.paths.stationDir, pName, 'agents', agent.name);
+              const res = syncAgentCustomizations({ agent, agentDir, paths: app.ctx.paths, cwd: app.state.cwd });
+              count += res.synced.length;
+            }
+          }
+          app.print(`  ${t.green('✓')} Synced shared rules, skills & MCP across profiles (${count} file(s) updated).`);
+          return;
+        }
+        const rules = loadRules(app.ctx.paths, app.state.cwd);
+        const skills = loadSkills(app.ctx.paths, app.state.cwd);
+        app.print([
+          t.bold('Shared Rules & Skills'),
+          `  ${t.dim(tildify(app.ctx.paths.configDir, app.ctx.paths.home))} ${t.dim('(/skills init to scaffold · /skills sync to push)')}`,
+          ...(rules.length ? rules.map((r) => `  ${t.green('✓')} rules (${r.scope})  ${t.dim(tildify(r.path, app.ctx.paths.home))}`) : [`  ${t.dim('no rules.md yet')}`]),
+          ...(skills.length
+            ? skills.map((s) => `  ${t.magenta('✦')} ${t.bold(s.name.padEnd(20))} ${t.dim(s.description)}`)
+            : [`  ${t.dim('no shared skills yet')}`]),
+        ]);
+      },
+    },
+    {
+      name: 'mcp',
+      args: '[init|sync]',
+      description: 'Unified MCP servers synced across all agents',
+      complete: () => [
+        { value: 'init', hint: 'create ~/.config/cosmodrome/mcp.json' },
+        { value: 'sync', hint: 'sync MCP servers to all profiles' },
+      ],
+      run: (args) => {
+        const sub = (args || '').trim();
+        if (sub === 'init' || sub === 'sync') return app.commands.get('skills').run(sub);
+        const { mcpServers, sources } = loadMcpServers(app.ctx.paths, app.state.cwd);
+        const names = Object.keys(mcpServers);
+        const mcpFile = path.join(app.ctx.paths.configDir, 'mcp.json');
+        app.print([
+          t.bold('Unified MCP Servers'),
+          `  ${t.dim(tildify(mcpFile, app.ctx.paths.home))}`,
+          ...(names.length
+            ? names.map((n) => `  ${t.green('●')} ${t.bold(n.padEnd(18))} ${t.dim(mcpServers[n].command || mcpServers[n].url || 'configured')}`)
+            : [`  ${t.dim('no MCP servers configured yet (use /mcp init, then edit mcp.json)')}`]),
+          ...(sources.length ? [t.dim(`  loaded from: ${sources.map((s) => tildify(s, app.ctx.paths.home)).join(', ')}`)] : []),
+        ]);
+      },
+    },
+    {
+      name: 'usage',
+      args: '[reset]',
+      description: 'Provider usage, costs, cooldowns & silent failovers',
+      complete: () => [{ value: 'reset', hint: 'clear usage cooldowns' }],
+      run: (args) => {
+        if ((args || '').trim() === 'reset') {
+          app.usage.clearCooldowns();
+          app.print(`  ${t.green('✓')} Cleared all provider usage cooldowns.`);
+          return;
+        }
+        const rows = app.usage.rows();
+        const failovers = app.usage.failovers || [];
+        if (!rows.length) {
+          app.print(`  ${t.dim('No agent runs recorded yet in this session.')}`);
+          return;
+        }
+        app.print([
+          t.bold('Provider Usage & Health'),
+          ...rows.map((r) => {
+            const id = `${r.profile}/${r.agent}`.padEnd(20);
+            const state = r.throttled ? t.yellow(`⟳ cooldown (${r.cooldownSecs}s)`) : t.green('● healthy');
+            const cost = r.costUsd > 0 ? ` · $${r.costUsd.toFixed(3)}` : '';
+            const limits = r.rateLimits > 0 ? ` · ${r.rateLimits} limit(s)` : '';
+            return `  ${id} ${state}  ${t.dim(`${r.runs} run(s)${cost}${limits}`)}`;
+          }),
+          ...(failovers.length
+            ? [
+                '',
+                t.bold('Recent Silent Failovers'),
+                ...failovers.slice(-5).map((f) => `  ${t.yellow('⟳')} #${f.profile}: @${f.from} → @${f.to} ${t.dim(`(${f.reason})`)}`),
+              ]
+            : []),
         ]);
       },
     },
