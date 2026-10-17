@@ -3,13 +3,11 @@
 **One launch pad for all your AI coding agents.** Type `cosmo` and you get a Claude Code–style interface with slash commands, channels for every profile and agent, web research, and artifacts you can bundle into a zip. Work and private stay apart: each profile has its own GitHub account, git identity, and agent logins.
 
 ```
-╭──────────────────────────────────────────────────────────────╮
-│ ✦ Welcome to cosmodrome v0.2.0                               │
-│                                                              │
-│ / commands · # channel · @ other agent · ! shell             │
-│                                                              │
-│ cwd: ~/work/api                                              │
-╰──────────────────────────────────────────────────────────────╯
+  .-'''''-.
+.'    ✦    '.◉    cosmodrome v0.3.0
+ '-._____.-'      ~/work/api
+/ commands · # channel · @ other agent · ! shell · ? keys
+
 ↪ #work/claude  (folder ~/work)
 > /research how do npm trusted publishers work
 ⏺ WebSearch(npm trusted publishing)

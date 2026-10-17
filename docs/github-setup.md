@@ -77,19 +77,24 @@ Update `repository`, `homepage` and `bugs` in `package.json` if you add them.
 ### 3. First npm release (manual, once)
 npm's trusted publishing needs an existing package, so the first version is published from your machine:
 ```bash
+git pull && npm test
+npm publish --dry-run        # check the file list and version
 npm login
 npm publish --access public
+git tag v0.3.0 && git push origin v0.3.0   # mark the release (see the note below)
 ```
 Check that the name is still free first: `npm view cosmodrome` should return 404. If it's taken, rename in `package.json` (e.g. `@your-scope/cosmodrome`).
+
+Push the first tag only **after** the manual publish: the tag starts `release.yml`, which can't publish yet (no trusted publisher) and stops at its version check because the version is already on npm.
 
 ### 4. Trusted publishing (no npm token in GitHub)
 1. On npmjs.com → package **Settings** → **Trusted Publisher** → **GitHub Actions**: enter your user/org, the repo, and the workflow file `release.yml`.
 2. Optional, but recommended: disallow token-based publishing for the package.
-3. `.github/workflows/release.yml` already has `permissions: id-token: write` and runs `npm publish --provenance --access public`. It updates npm first, because trusted publishing needs a recent npm CLI.
+3. `.github/workflows/release.yml` already has `permissions: id-token: write` and runs `npm publish --provenance --access public`. It installs npm 11 first (trusted publishing needs 11.5.1 or newer), checks that the tag matches `package.json`, and skips versions that are already on npm.
 
 ### 5. Release
 ```bash
-npm version minor            # bumps package.json, commits, tags v0.3.0
+npm version minor            # bumps package.json, commits, tags e.g. v0.4.0
 git push --follow-tags       # the tag triggers release.yml → npm publish with provenance
 ```
 Docs: https://docs.npmjs.com/trusted-publishers

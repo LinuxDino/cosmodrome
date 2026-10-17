@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 - New logo: a star with an orbiting satellite (3 lines, 1 line on narrow terminals and after /clear), and an orbit spinner while an agent works. ASCII fallback (`COSMO_ASCII=1`, non-UTF-8 locales) and `COSMO_REDUCED_MOTION=1`.
 - Fixed: Esc now stops the agent and every tool it started; a run can no longer hang on "Interrupting…".
 - Fixed: Enter runs a slash command typed out in full (/native, /mode, /channel, ...).
