@@ -4,7 +4,7 @@
 
 ```
   .-'''''-.
-.'    ✦    '.◉    cosmodrome v0.3.0
+.'    ✦    '.◉    cosmodrome v0.4.0
  '-._____.-'      ~/work/api
 / commands · # channel · @ other agent · ! shell · ? keys
 
