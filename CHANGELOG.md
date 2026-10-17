@@ -1,6 +1,9 @@
 # Changelog
 
 ## 0.5.0
+- New: `COSMO.md` - one instructions file per project that every agent gets (Claude, Copilot, agy, Codex, OpenCode, the router). `/project init` creates it; this repo has its own.
+- New: model per agent and profile - `/model claude opus`, `/model copilot auto`, or `profiles.<name>.agents.<agent>.model` in the config. Used in the interface and in native launches.
+- Copilot CLI: flags checked against 1.0.98. Ask mode now uses Copilot's real permission patterns (`--deny-tool=write --deny-tool=shell`); the old `view/glob/grep` patterns don't exist. Copilot gets the shared instructions via `copilot-instructions.md` and the MCP servers via `--additional-mcp-config`.
 - New: local orchestrator with Ollama. `@ollama` runs a local model; `/router` lets it plan each message and hand parts to other agents; `/delegate` and `/council` split a task or ask several agents in parallel and merge the answers.
 - New: automatic switch to another installed agent when one hits a usage limit, with a cooldown; `/usage` shows runs, cost, cooldowns and switches.
 - New: shared rules, skills and MCP servers for all agents (`/skills`, `/mcp`), a live tool line under the spinner, clickable file links and `/preview` cards.

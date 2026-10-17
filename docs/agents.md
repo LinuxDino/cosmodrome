@@ -27,7 +27,7 @@ Sign in per profile from the interface with `/login <agent>`, or from the shell 
 | Agent | ask (default) | auto |
 |---|---|---|
 | claude | `--allowedTools Read,Grep,Glob,WebSearch,WebFetch` | + `--permission-mode acceptEdits` |
-| copilot | `--allow-tool=view/glob/grep --allow-all-urls` | `--allow-all-tools` |
+| copilot | `--deny-tool=write --deny-tool=shell --allow-all-urls` | `--allow-all-tools` |
 | opencode | `--agent plan` (read-only agent) | default build agent |
 | codex | `--sandbox read-only` | `--full-auto` |
 | agy | `--mode plan` | `--mode accept-edits` |
@@ -44,6 +44,9 @@ Shell commands stay blocked for Claude even in auto mode. For full control, use 
 
 ### GitHub Copilot CLI
 - Install: `npm install -g @github/copilot` (Node 22+) or `brew install --cask github-copilot-cli`
+- Flags checked against Copilot CLI 1.0.98. Its permission patterns are `shell(…)`, `write(…)`, `url(…)` and MCP servers, so ask mode denies `write` and `shell` and keeps reading and the web.
+- Personal instructions: cosmodrome keeps its section (shared rules, skills, `COSMO.md`) in `$COPILOT_HOME/copilot-instructions.md`; Copilot also reads the repo's `AGENTS.md` itself. MCP servers are passed with `--additional-mcp-config=@file`.
+- A GitHub Pro plan includes Copilot. `/model copilot auto` lets Copilot choose the model.
 - Needs a paid Copilot plan. Each profile can use a different GitHub account.
 - Programmatic runs only use tools you allow. That's why ask mode lists read-only tools explicitly.
 
@@ -61,6 +64,25 @@ Shell commands stay blocked for Claude even in auto mode. For full control, use 
 - agy has no config-dir option, so cosmodrome gives it a private `HOME` per profile (it stores state in `~/.gemini/antigravity-cli/`). On Linux, `DBUS_SESSION_BUS_ADDRESS` is unset so it can't fall back to a shared keyring.
 - Inside agy sessions `~/.ssh` is not visible. Use HTTPS remotes (the profile's gh credential helper handles auth).
 - Older agy builds printed nothing when stdout was not a terminal. If a one-shot run shows "(no output)", run `agy update` or use `/native`.
+
+## Models
+
+Each profile can pick a model per agent: `/model claude opus` in the interface, or in the config:
+
+```json
+"profiles": { "work": { "agents": { "claude": { "model": "opus" }, "copilot": { "model": "auto" } } } }
+```
+
+| Agent | Flag cosmodrome passes | Examples |
+|---|---|---|
+| claude | `--model` | `opus`, `sonnet` |
+| copilot | `--model` | `auto` (Copilot picks) |
+| codex | `exec --model` | a model your Codex plan offers |
+| opencode | `run --model` | `provider/model` |
+| ollama | the model name | `qwen3:8b` |
+| agy | none yet: agy uses its own setting | |
+
+`agents.<name>.model` at the top level sets a default for all profiles. Custom agents can take a model with `"headless": { "modelArgs": ["--model", "{model}"] }`.
 
 ## Custom agents and overrides
 

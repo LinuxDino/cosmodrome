@@ -18,6 +18,12 @@ export const BUILTIN_AGENTS = {
     env: { CLAUDE_CONFIG_DIR: '{agentDir}' },
     loginArgs: [],
     loginHint: 'Claude Code asks you to sign in on first start. If it does not, type /login.',
+    // Flags for the interactive (native) launch: per-profile model and cosmo's MCP file.
+    launchArgs: (s) => [
+      ...(s.agentModel ? ['--model', s.agentModel] : []),
+      // "=" form: --mcp-config takes a list and would otherwise swallow a prompt that follows.
+      ...(s.mcpConfig ? [`--mcp-config=${s.mcpConfig}`] : []),
+    ],
     note: 'Isolated via CLAUDE_CONFIG_DIR. On macOS the login is in the Keychain: recent versions keep one entry per config folder.',
     // macOS: Claude Code names its Keychain entry after CLAUDE_CONFIG_DIR since about 2.1.121
     // (community reports, not official docs); older versions share one entry.
@@ -29,6 +35,7 @@ export const BUILTIN_AGENTS = {
       build: (prompt, s) => [
         '-p',
         '--output-format', 'stream-json', '--verbose',
+        ...(s.agentModel ? ['--model', s.agentModel] : []),
         '--allowedTools', 'Read,Grep,Glob,WebSearch,WebFetch',
         ...(s.resumeId ? ['--resume', s.resumeId] : s.continued ? ['--continue'] : []),
         ...(s.mode === 'auto' ? ['--permission-mode', 'acceptEdits'] : []),
@@ -45,15 +52,23 @@ export const BUILTIN_AGENTS = {
     env: { COPILOT_HOME: '{agentDir}' },
     loginArgs: [],
     loginHint: 'Type /login inside Copilot CLI if it does not ask you to sign in.',
+    launchArgs: (s) => [
+      ...(s.agentModel ? ['--model', s.agentModel] : []),
+      ...(s.mcpConfig ? [`--additional-mcp-config=@${s.mcpConfig}`] : []),
+    ],
     note: "Isolated via COPILOT_HOME. Copilot can also use this profile's gh login.",
     headless: {
       stream: 'text',
       build: (prompt, s) => [
         '-p', prompt, '-s', '--no-color',
+        ...(s.agentModel ? ['--model', s.agentModel] : []),
+        ...(s.mcpConfig ? [`--additional-mcp-config=@${s.mcpConfig}`] : []),
         ...(s.continued ? ['--continue'] : []),
+        // Permission patterns are shell(...), write(...), url(...) (copilot help permissions):
+        // ask mode denies writes and shell commands, reading and the web stay allowed.
         ...(s.mode === 'auto'
           ? ['--allow-all-tools']
-          : ['--allow-tool=view', '--allow-tool=glob', '--allow-tool=grep', '--allow-all-urls']),
+          : ['--deny-tool=write', '--deny-tool=shell', '--allow-all-urls']),
       ],
     },
   },
@@ -74,6 +89,7 @@ export const BUILTIN_AGENTS = {
       stream: 'text',
       build: (prompt, s) => [
         'run',
+        ...(s.agentModel ? ['--model', s.agentModel] : []),
         ...(s.continued ? ['--continue'] : []),
         ...(s.mode === 'auto' ? [] : ['--agent', 'plan']),
         prompt,
@@ -93,6 +109,7 @@ export const BUILTIN_AGENTS = {
       stream: 'text',
       build: (prompt, s) => [
         'exec', '--skip-git-repo-check',
+        ...(s.agentModel ? ['--model', s.agentModel] : []),
         ...(s.mode === 'auto' ? ['--full-auto'] : ['--sandbox', 'read-only']),
         ...(s.continued ? ['resume', '--last'] : []),
         prompt,
@@ -200,8 +217,9 @@ export function buildHeadless(agent, prompt, s = {}) {
   const h = agent.headless;
   if (!h) return null;
   if (typeof h.build === 'function') return h.build(prompt, s);
-  const fill = (arr) => (arr || []).map((a) => (a === '{prompt}' ? prompt : a));
+  const fill = (arr) => (arr || []).map((a) => (a === '{prompt}' ? prompt : a === '{model}' ? s.agentModel : a));
   return [
+    ...(s.agentModel ? fill(h.modelArgs) : []),
     ...fill(h.args || ['{prompt}']),
     ...(s.continued ? fill(h.continueArgs) : []),
     ...fill(s.mode === 'auto' ? h.autoArgs : h.askArgs),
@@ -224,4 +242,12 @@ export function keychainAdvice(agent, { platform, version = null }) {
   return versionAtLeast(version, k.since)
     ? { level: 'ok', text: `${agent.label} ${version.join('.')} keeps a separate Keychain login per profile.` }
     : { level: 'warn', text: `${agent.label} ${version.join('.')} shares one Keychain login across profiles. Update it (claude update) to keep work and private apart.` };
+}
+
+/**
+ * The model a profile wants for an agent: profiles.<p>.agents.<agent>.model, else the
+ * global agents.<agent>.model, else null (the agent's own default).
+ */
+export function agentModel(config = {}, profileName, agentName) {
+  return config.profiles?.[profileName]?.agents?.[agentName]?.model || config.agents?.[agentName]?.model || null;
 }

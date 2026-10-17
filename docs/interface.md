@@ -68,6 +68,8 @@ With [Ollama](https://ollama.com) installed, `ollama` is one more agent (`@ollam
 
 ## Shared rules, skills and MCP
 
+A project's `COSMO.md` (repo root, `/project init` creates it) is added for every agent too.
+
 `/skills init` creates `rules.md`, a starter skill and `mcp.json` in the cosmodrome config folder; a repo can add its own in `<repo>/.cosmo/`. `/skills sync` (also done before each run) gives them to every installed agent:
 
 | Agent | Rules and skills | MCP servers |
@@ -76,7 +78,7 @@ With [Ollama](https://ollama.com) installed, `ollama` is one more agent (`@ollam
 | codex | own section in `AGENTS.md` | - |
 | opencode | own section in `AGENTS.md` | `opencode.json` |
 | agy | skills folder | `mcp_config.json` |
-| copilot | own section in `instructions.md` | - |
+| copilot | own section in `copilot-instructions.md` | `cosmodrome-mcp.json`, passed with `--additional-mcp-config` |
 
 cosmo only edits its own marked section (`<!-- cosmodrome:start -->`) and never Claude's `.claude.json`; a config file it can't read is left alone. Rules from a repo's `.cosmo/` are instructions for your agents, so only use them in repos you trust.
 

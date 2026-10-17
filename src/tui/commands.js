@@ -1,15 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { agentNames, getAgent } from '../agents.js';
+import { agentNames, getAgent, agentModel, canonicalAgentName } from '../agents.js';
 import { tildify, expandHome } from '../paths.js';
 import { which } from '../system.js';
-import { CosmoError } from '../ui.js';
+import { CosmoError, closest } from '../ui.js';
+import { saveConfig } from '../config.js';
 import { listArtifacts, saveArtifact, zipArtifacts, artifactsRoot } from '../artifacts.js';
 import { createMarkdownState, renderMarkdownLine, renderPreviewBox } from './markdown.js';
 import { orbitMap } from './components/orbitMap.js';
 import { runDelegation, runCouncil, listOllamaModels, pickLocalModel } from '../orchestrator.js';
-import { loadSkills, loadRules, loadMcpServers, initCustomizations, syncAgentCustomizations } from '../skills.js';
+import { loadSkills, loadRules, loadMcpServers, initCustomizations, syncAgentCustomizations, cosmoMdPath, COSMO_MD_TEMPLATE } from '../skills.js';
 
 export const RESEARCH_PROMPT = (topic) =>
   `Research this topic on the web: ${topic}
@@ -123,6 +124,70 @@ export function registerBuiltinCommands(app) {
         { value: 'auto', hint: 'let the agent edit files in this folder' },
       ],
       run: (args) => app.setMode(args || (app.state.mode === 'ask' ? 'auto' : 'ask')),
+    },
+    {
+      name: 'model',
+      args: '[agent] [model|default]',
+      description: 'Model per agent for this profile (e.g. /model claude opus)',
+      complete: () => agentNames(app.config).map((a) => ({ value: a, hint: agentModel(app.config, app.requireChannel().profile, a) || 'default' })),
+      run: (args) => {
+        const ch = app.requireChannel();
+        const [rawAgent, model] = args ? args.split(/\s+/) : [];
+        if (!rawAgent) {
+          app.print([
+            t.bold(`Models for #${ch.profile}`),
+            ...agentNames(app.config).filter((a) => app.channels.installed(a)).map((a) => {
+              const m = agentModel(app.config, ch.profile, a);
+              return `  ${a.padEnd(9)} ${m ? t.magenta(m) : t.dim("default (the agent's own choice)")}`;
+            }),
+            t.dim('  /model <agent> <model> to set · /model <agent> default to reset'),
+          ]);
+          return;
+        }
+        const agent = canonicalAgentName(rawAgent, app.config);
+        if (!agent) {
+          const guess = closest(rawAgent, agentNames(app.config));
+          throw new CosmoError(`Unknown agent "${rawAgent}".`, { hint: guess ? `Did you mean ${guess}?` : `Agents: ${agentNames(app.config).join(', ')}` });
+        }
+        if (!model) {
+          app.print(`  ${agent}: ${agentModel(app.config, ch.profile, agent) || 'default'}`);
+          return;
+        }
+        const profile = app.config.profiles[ch.profile];
+        profile.agents = profile.agents || {};
+        profile.agents[agent] = { ...(profile.agents[agent] || {}) };
+        if (model === 'default') delete profile.agents[agent].model;
+        else profile.agents[agent].model = model;
+        if (!Object.keys(profile.agents[agent]).length) delete profile.agents[agent];
+        saveConfig(app.ctx.paths, app.config);
+        if (agent === 'ollama') app.state.localModel = null;
+        app.print(`  ${t.green('✓')} #${ch.profile} ${agent}: ${model === 'default' ? "default (the agent's own choice)" : model}`);
+      },
+    },
+    {
+      name: 'project',
+      args: '[init]',
+      description: "This project's COSMO.md - instructions every agent gets",
+      complete: () => [{ value: 'init', hint: 'create COSMO.md from a template' }],
+      run: (args) => {
+        const file = cosmoMdPath(app.state.cwd);
+        const shown = tildify(file, app.ctx.paths.home);
+        if (args === 'init') {
+          if (fs.existsSync(file)) return app.print(`  ${t.dim(`${shown} already exists`)}`);
+          fs.writeFileSync(file, COSMO_MD_TEMPLATE);
+          return app.print([`${t.green('✓')} Created ${shown}`, t.dim('  Edit it - every agent gets it before its next run.')]);
+        }
+        if (!fs.existsSync(file)) {
+          return app.print([`  ${t.dim(`No COSMO.md yet (${shown})`)}`, t.dim('  /project init creates one: rules and context that every agent in this project gets.')]);
+        }
+        const lines = fs.readFileSync(file, 'utf8').split('\n');
+        const md = createMarkdownState();
+        app.print([
+          `${t.bold('COSMO.md')} ${t.dim(shown)}`,
+          ...lines.slice(0, 30).map((l) => `  ${renderMarkdownLine(l, md, t)}`),
+          ...(lines.length > 30 ? [t.dim(`  … ${lines.length - 30} more lines`)] : []),
+        ]);
+      },
     },
     {
       name: 'new',

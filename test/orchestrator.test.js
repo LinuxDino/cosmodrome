@@ -238,3 +238,51 @@ test('subagent tags are hidden while an answer streams', async () => {
   assert.equal(f('before <cosmo:subagent agent="a">x</cosmo:subagent> after'), 'before  after');
   assert.equal(f('a\n<cosmo:subagent agent="b">y</cosmo:subagent>\nb'), 'a\nb');
 });
+
+test('per-profile models reach each agent with its own flag', async () => {
+  const { getAgent, buildHeadless, agentModel } = await import('../src/agents.js');
+  const config = { agents: { codex: { model: 'gpt-5-codex' } }, profiles: { work: { agents: { claude: { model: 'opus' } } } } };
+  assert.equal(agentModel(config, 'work', 'claude'), 'opus');
+  assert.equal(agentModel(config, 'work', 'codex'), 'gpt-5-codex', 'falls back to the global agent setting');
+  assert.equal(agentModel(config, 'work', 'copilot'), null);
+
+  const claude = buildHeadless(getAgent('claude'), 'hi', { agentModel: 'opus' });
+  assert.ok(claude.join(' ').includes('--model opus') && claude.at(-1) === 'hi');
+  const codex = buildHeadless(getAgent('codex'), 'x', { agentModel: 'gpt-5-codex', mode: 'ask' });
+  assert.deepEqual(codex.slice(0, 4), ['exec', '--skip-git-repo-check', '--model', 'gpt-5-codex']);
+  assert.ok(buildHeadless(getAgent('opencode'), 'x', { agentModel: 'github-copilot/gpt-5' }).join(' ').includes('run --model github-copilot/gpt-5'));
+  const custom = getAgent('aider', { agents: { aider: { headless: { args: ['--message', '{prompt}'], modelArgs: ['--model', '{model}'] } } } });
+  assert.deepEqual(buildHeadless(custom, 'go', { agentModel: 'sonnet' }), ['--model', 'sonnet', '--message', 'go']);
+  assert.deepEqual(getAgent('claude').launchArgs({ agentModel: 'opus', mcpConfig: '/m.json' }), ['--model', 'opus', '--mcp-config=/m.json']);
+});
+
+test('copilot: verified flags for ask/auto, model and MCP', async () => {
+  const { getAgent, buildHeadless } = await import('../src/agents.js');
+  const copilot = getAgent('copilot');
+  const ask = buildHeadless(copilot, 'review', { mode: 'ask', agentModel: 'auto', mcpConfig: '/c/cosmodrome-mcp.json' });
+  assert.deepEqual(ask.slice(0, 4), ['-p', 'review', '-s', '--no-color']);
+  assert.ok(ask.includes('--deny-tool=write') && ask.includes('--deny-tool=shell') && ask.includes('--allow-all-urls'));
+  assert.ok(!ask.includes('--allow-all-tools'));
+  assert.ok(ask.join(' ').includes('--model auto'));
+  assert.ok(ask.includes('--additional-mcp-config=@/c/cosmodrome-mcp.json'));
+  const auto = buildHeadless(copilot, 'fix', { mode: 'auto', continued: true });
+  assert.ok(auto.includes('--allow-all-tools') && auto.includes('--continue') && !auto.includes('--deny-tool=write'));
+});
+
+test('COSMO.md reaches every agent, Copilot via copilot-instructions.md', async () => {
+  const { syncAgentCustomizations, loadRules, cosmoMdPath } = await import('../src/skills.js');
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'cosmo-proj-'));
+  fs.mkdirSync(path.join(repo, '.git'));
+  fs.mkdirSync(path.join(repo, 'src'));
+  fs.writeFileSync(path.join(repo, 'COSMO.md'), '# Project rules\nAlways run npm test.');
+  const paths = { configDir: path.join(repo, 'cfg-none') };
+  assert.equal(cosmoMdPath(path.join(repo, 'src')), path.join(repo, 'COSMO.md'));
+  assert.equal(loadRules(paths, path.join(repo, 'src'))[0].scope, 'project');
+
+  const copilotDir = path.join(repo, 'agents', 'copilot');
+  syncAgentCustomizations({ agent: { name: 'copilot' }, agentDir: copilotDir, paths, cwd: path.join(repo, 'src') });
+  assert.match(fs.readFileSync(path.join(copilotDir, 'copilot-instructions.md'), 'utf8'), /Always run npm test\./);
+  const codexDir = path.join(repo, 'agents', 'codex');
+  syncAgentCustomizations({ agent: { name: 'codex' }, agentDir: codexDir, paths, cwd: repo });
+  assert.match(fs.readFileSync(path.join(codexDir, 'AGENTS.md'), 'utf8'), /Always run npm test\./);
+});

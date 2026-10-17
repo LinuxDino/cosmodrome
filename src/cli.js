@@ -5,7 +5,7 @@ import { resolvePaths, expandHome, tildify } from './paths.js';
 import {
   loadConfig, requireConfig, saveConfig, emptyConfig, validateProfileName, normalizeProfileName, getProfile, assertSafeValue,
 } from './config.js';
-import { getAgent, agentNames, keychainAdvice } from './agents.js';
+import { getAgent, agentNames, keychainAdvice, agentModel } from './agents.js';
 import { planProfileEnv, applyPlan, envDiff } from './env.js';
 import { which, runInteractive, capture, shq, gitVersion, versionAtLeast, dirHasEntries } from './system.js';
 import { readGhUser } from './github.js';
@@ -133,9 +133,8 @@ async function launchCmd(args, ctx) {
   const bin = requireBin(agent, ctx);
   const p = plan(config, name, agent, ctx);
   if (!opts.quiet) banner(agent.label, config, name, ctx, cwd, reason);
-  // "=" form: --mcp-config takes a list and would otherwise swallow a prompt that follows.
-  const mcpArgs = p.mcpConfig && agent.name === 'claude' ? [`--mcp-config=${p.mcpConfig}`] : [];
-  const agentArgs = [...mcpArgs, ...(agent.args || []), ...(profile.agents?.[agent.name]?.args || []), ...opts.rest];
+  const launchArgs = agent.launchArgs ? agent.launchArgs({ agentModel: agentModel(config, name, agent.name), mcpConfig: p.mcpConfig }) : [];
+  const agentArgs = [...launchArgs, ...(agent.args || []), ...(profile.agents?.[agent.name]?.args || []), ...opts.rest];
   return runInteractive(bin, agentArgs, { env: p.env, cwd });
 }
 

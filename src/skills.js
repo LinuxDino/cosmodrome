@@ -88,6 +88,34 @@ export function loadSkills(paths, cwd) {
   return [...byName.values()];
 }
 
+/** Where a project's COSMO.md lives: the repo root, or the folder itself outside a repo. */
+export function cosmoMdPath(cwd) {
+  if (!cwd) return null;
+  return path.join(findRepoRoot(cwd) || path.resolve(cwd), 'COSMO.md');
+}
+
+export const COSMO_MD_TEMPLATE = `# COSMO.md
+
+Instructions for every agent working in this project through cosmodrome
+(Claude, Copilot, agy, Codex, OpenCode and the local router).
+
+## Project
+- What this project is, in one or two sentences.
+- How to run it and how to test it.
+
+## Rules
+- Run the tests before calling anything done.
+- Keep changes small and focused.
+
+## Which agent for what
+- @claude: larger changes across files, design, reviews.
+- @copilot: GitHub work - issues, pull requests, Actions.
+- @agy: web research, docs, broad questions about the repo.
+
+## Git
+- Work on a branch, commit with clear messages, open a pull request.
+`;
+
 /**
  * Load shared rules from global (~/.config/cosmodrome/rules.md) and workspace (<repo>/.cosmo/rules.md).
  */
@@ -98,6 +126,11 @@ export function loadRules(paths, cwd) {
   if (g?.trim()) out.push({ scope: 'global', path: globalRules, content: g.trim() });
 
   const repo = cwd ? findRepoRoot(cwd) : null;
+  // COSMO.md in the project root (or the current folder outside a repo): one instructions
+  // file that every agent gets, whatever its own file is called.
+  const projectFile = cosmoMdPath(cwd);
+  const project = projectFile ? readIfExists(projectFile) : null;
+  if (project?.trim()) out.push({ scope: 'project', path: projectFile, content: project.trim() });
   if (repo) {
     const repoRules = path.join(repo, '.cosmo', 'rules.md');
     const r = readIfExists(repoRules);
@@ -202,6 +235,18 @@ export function mergeJsonFile(filePath, patchFn) {
   return true;
 }
 
+/** cosmo's own MCP file in an agent folder, handed to the agent with a flag. */
+function writeOwnMcpFile(agentDir, mcpServers, synced) {
+  const file = path.join(agentDir, 'cosmodrome-mcp.json');
+  const content = JSON.stringify({ mcpServers }, null, 2) + '\n';
+  if (readIfExists(file) !== content) {
+    fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(file, content, { mode: 0o600 });
+    synced.push(file);
+  }
+  return file;
+}
+
 const BLOCK_START = '<!-- cosmodrome:start (managed by cosmodrome - edits inside are replaced) -->';
 const BLOCK_END = '<!-- cosmodrome:end -->';
 
@@ -261,15 +306,7 @@ export function syncAgentCustomizations({ agent, agentDir, paths, cwd }) {
       instructions(path.join(agentDir, 'CLAUDE.md'));
       // Never edit .claude.json: it holds Claude Code's account and session state. cosmo keeps
       // its servers in its own file and passes it with --mcp-config.
-      if (hasMcp) {
-        mcpConfig = path.join(agentDir, 'cosmodrome-mcp.json');
-        const content = JSON.stringify({ mcpServers }, null, 2) + '\n';
-        if (readIfExists(mcpConfig) !== content) {
-          fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
-          fs.writeFileSync(mcpConfig, content, { mode: 0o600 });
-          synced.push(mcpConfig);
-        }
-      }
+      if (hasMcp) mcpConfig = writeOwnMcpFile(agentDir, mcpServers, synced);
     } else if (agent.name === 'agy') {
       const agyBase = path.join(agentDir, 'home', '.gemini', 'antigravity-cli');
       fs.mkdirSync(agyBase, { recursive: true, mode: 0o700 });
@@ -294,7 +331,10 @@ export function syncAgentCustomizations({ agent, agentDir, paths, cwd }) {
         if (mergeJsonFile(ocJson, (cur) => ({ ...cur, mcp: { ...(cur.mcp || {}), ...mcpServers } }))) synced.push(ocJson);
       }
     } else if (agent.name === 'copilot') {
-      instructions(path.join(agentDir, 'instructions.md'));
+      // Copilot reads personal instructions from $COPILOT_HOME/copilot-instructions.md
+      // (`copilot instruction list`); MCP servers go in with --additional-mcp-config.
+      instructions(path.join(agentDir, 'copilot-instructions.md'));
+      if (hasMcp) mcpConfig = writeOwnMcpFile(agentDir, mcpServers, synced);
     }
   } catch {
     /* non-fatal sync */

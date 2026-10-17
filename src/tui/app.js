@@ -14,7 +14,7 @@ import { ChannelManager, recordRun } from './channels.js';
 import { runProcess } from './runner.js';
 import { loadModules } from './modules.js';
 import { loadConfig, emptyConfig } from '../config.js';
-import { getAgent, buildHeadless, agentNames, canonicalAgentName } from '../agents.js';
+import { getAgent, buildHeadless, agentNames, canonicalAgentName, agentModel } from '../agents.js';
 import { tildify } from '../paths.js';
 import { which } from '../system.js';
 import { CosmoError, closest, failureHint } from '../ui.js';
@@ -701,6 +701,8 @@ export class App {
    */
   localModel(agent) {
     if (agent?.name !== 'ollama') return this.state.localModel;
+    const configured = this.channels.current && agentModel(this.config, this.channels.current.profile, 'ollama');
+    if (configured && !this.ctx.env.COSMO_LOCAL_MODEL) return configured;
     if (!this.state.localModel) {
       this.state.localModel = pickLocalModel(listOllamaModels({ env: this.ctx.env }), this.config, this.ctx.env);
     }
@@ -755,7 +757,7 @@ export class App {
     if (session.moved) this.print(t.dim(`  new conversation for ${tildify(this.state.cwd, this.ctx.paths.home)} (agents keep conversations per folder)`));
     const runMode = this.effectiveMode(modeOverride);
     const plan = this.cli.plan(this.config, ch.profile, agent, this.cliCtx());
-    const args = buildHeadless(agent, prompt, { ...session, mode: runMode, model: this.localModel(agent), mcpConfig: plan.mcpConfig });
+    const args = buildHeadless(agent, prompt, { ...session, mode: runMode, model: this.localModel(agent), agentModel: agentModel(this.config, ch.profile, agent.name), mcpConfig: plan.mcpConfig });
     if (!args) {
       throw new CosmoError(`${agent.label} has no one-shot mode configured.`, { hint: 'Use /native, or add "headless" to the agent in cosmo config edit.' });
     }
@@ -903,7 +905,7 @@ export class App {
         }
         const bin = this.cli.requireBin(agent, this.ctx);
         const plan = this.cli.plan(this.config, ch.profile, agent, this.cliCtx());
-        const args = buildHeadless(agent, sub.prompt, { continued: false, mode: sub.mode, model: this.localModel(agent), mcpConfig: plan.mcpConfig });
+        const args = buildHeadless(agent, sub.prompt, { continued: false, mode: sub.mode, model: this.localModel(agent), agentModel: agentModel(this.config, ch.profile, agent.name), mcpConfig: plan.mcpConfig });
         const t0 = Date.now();
         const handle = runProcess({
           bin,

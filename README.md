@@ -90,6 +90,8 @@ hello!                # chat with the current channel
 | `/init`, `/profile …`, `/status`, `/doctor`, `/agents` | Setup and checks |
 | `/shell` | Interactive shell with the profile identity |
 | `/modules` | Your custom commands |
+| `/model [agent] [model]` | Model per agent for this profile (`/model claude opus`, `/model copilot auto`) |
+| `/project [init]` | This project's `COSMO.md` |
 | `/router [on\|off\|model]` | Local Ollama model plans each message and hands parts to the right agents |
 | `/delegate <task>` · `/council <question>` | Split a task across agents · ask several agents in parallel and merge the answers |
 | `/usage` | Runs, cost, usage-limit cooldowns and automatic switches per agent |
@@ -102,6 +104,10 @@ Full guide: [docs/interface.md](docs/interface.md).
 ### Artifacts
 
 Answers from `/artifact`, `/research` or `/save` become folders. Each one holds the full answer plus every code block as a real file (```` ```README.md ```` → `README.md`). Inside a git repo they go to `.cosmo/artifacts/` (git-ignored automatically); elsewhere they go to the cosmodrome data folder. `/zip all` packs everything into one zip.
+
+### COSMO.md
+
+Put a `COSMO.md` in a project's root (`/project init` creates one): rules, context and "which agent for what". Every agent gets it before each run - Claude, Copilot, agy, Codex, OpenCode and the local router - in addition to the files each one reads itself (`CLAUDE.md`, `AGENTS.md`). This repo has [its own](COSMO.md).
 
 ### Modules
 
