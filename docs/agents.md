@@ -15,7 +15,7 @@ cosmodrome drives five agents out of the box. Each one runs as its **official CL
 | Channel agent | Isolation | Login | One-shot command used by the interface |
 |---|---|---|---|
 | `claude` – Claude Code | `CLAUDE_CONFIG_DIR` | first start or `/login` inside | `claude -p … --output-format stream-json --verbose` (+ `--resume <session>`) |
-| `copilot` – GitHub Copilot CLI | `COPILOT_HOME` | `/login` inside, or the profile's gh login | `copilot -p … -s` (+ `--continue`) |
+| `copilot` – GitHub Copilot CLI | `COPILOT_HOME` | `/login` inside, or the profile's gh login | `copilot -p … --output-format text --stream off` (+ `--continue`) |
 | `opencode` – OpenCode | XDG config/data/state dirs | `opencode auth login` | `opencode run …` (+ `--continue`) |
 | `codex` – OpenAI Codex CLI | `CODEX_HOME` | `codex login` | `codex exec …` (+ `resume --last`) |
 | `agy` – Antigravity CLI | private `HOME` | first start | `agy -p … --print-timeout 15m` (+ `--continue`) |

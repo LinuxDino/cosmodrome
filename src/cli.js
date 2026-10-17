@@ -131,7 +131,7 @@ async function launchCmd(args, ctx) {
   if (!agent) throw unknownAgent(agentName, config);
   await guardWorkdir(config, name, cwd, ctx, opts.force);
   const bin = requireBin(agent, ctx);
-  const p = plan(config, name, agent, ctx);
+  const p = plan(config, name, agent, { ...ctx, cwd });
   if (!opts.quiet) banner(agent.label, config, name, ctx, cwd, reason);
   const launchArgs = agent.launchArgs ? agent.launchArgs({ agentModel: agentModel(config, name, agent.name), mcpConfig: p.mcpConfig }) : [];
   const agentArgs = [...launchArgs, ...(agent.args || []), ...(profile.agents?.[agent.name]?.args || []), ...opts.rest];

@@ -1,5 +1,5 @@
 import { capture, which } from './system.js';
-import { AGENT_ROLES, buildCosmoContext } from './context.js';
+import { AGENT_ROLES } from './context.js';
 import { DEFAULT_PRIORITY } from './usage.js';
 
 const PREFERRED_LOCAL_MODELS = [
@@ -45,6 +45,10 @@ export function pickLocalModel(installedModels = [], config = {}, env = process.
 
 /** Most subagents one answer may start; the tags can also come from text an agent merely read. */
 export const MAX_SUBAGENTS = 4;
+
+function likelyNeedsAdvisors(prompt) {
+  return /\b(review|audit|research|compare|architecture|design|security|investigate|analy[sz]e|multiple|repo|codebase|workflow|integration)\b/i.test(String(prompt));
+}
 
 /**
  * Parse `<cosmo:subagent agent="claude" mode="ask">prompt</cosmo:subagent>` blocks from AI output.
@@ -175,21 +179,14 @@ export async function runDelegation(prompt, app) {
   app.print(`${t.magenta('✦')} ${t.bold('Mission Control')} ${t.dim(`· analyzing task across ${installed.length} installed agent(s)`)}`);
 
   let calls = [];
-  if (installed.includes('ollama')) {
+  if (installed.includes('ollama') && likelyNeedsAdvisors(prompt)) {
+    const specialists = installed.filter((a) => a !== 'ollama').map((a) => `@${a}`).join(', ') || 'none';
     const plannerPrompt =
-      `${buildCosmoContext({
-        profile: ch.profile,
-        agent: 'ollama',
-        cwd: app.state.cwd,
-        mode: app.state.mode,
-        installedAgents: installed,
-        throttledAgents: throttled,
-        paths: app.ctx.paths,
-        allowSubagents: true,
-      })}\n\n` +
-      `You are the fast local MacBook orchestrator for Cosmodrome.\n` +
-      `Break down the user's request below. If it is trivial, answer it directly.\n` +
-      `If specialist cloud agents (${installed.filter((a) => a !== 'ollama').map((a) => '@' + a).join(', ')}) should handle parts of it, emit 1 to 3 <cosmo:subagent agent="NAME" mode="ask">task</cosmo:subagent> blocks.\n\n` +
+      `You are Cosmodrome's fast router. Return only delegation tags or the word DIRECT. ` +
+      `Do not explain, summarize, or answer the task. Emit at most 3 concise tags using available specialists: ${specialists}. ` +
+      `Use mode="ask" for advisor work. Delegate only when specialist input materially improves the result.\n\n` +
+      `Available agents: ${installed.join(', ')}\n` +
+      `On cooldown: ${throttled.join(', ') || 'none'}\n` +
       `Task: ${prompt}`;
 
     const planRes = await app.sendPrompt(plannerPrompt, {
@@ -197,11 +194,10 @@ export async function runDelegation(prompt, app) {
       echo: false,
       quietMeta: true,
       skipSubagentSpawn: true,
+      enrich: false,
+      suppressOutput: true,
     });
     calls = parseSubagentCalls(planRes.text);
-    if (!calls.length && planRes.code === 0 && planRes.text.trim()) {
-      return planRes;
-    }
   }
 
   if (!calls.length) {
@@ -209,7 +205,8 @@ export async function runDelegation(prompt, app) {
     calls = [{ agent: routed.agent, mode: app.state.mode, prompt }];
   }
 
-  return app.executeSubagents(calls, { parentPrompt: prompt, synthesizeWith: installed.includes('ollama') ? 'ollama' : null });
+  const finalizer = installed.includes('claude') ? 'claude' : installed.includes('ollama') ? 'ollama' : null;
+  return app.executeSubagents(calls, { parentPrompt: prompt, synthesizeWith: finalizer });
 }
 
 /**

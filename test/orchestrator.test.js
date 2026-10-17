@@ -19,7 +19,7 @@ import {
   loadMcpServers,
   syncAgentCustomizations,
 } from '../src/skills.js';
-import { buildCosmoContext } from '../src/context.js';
+import { buildCosmoContext, enrichPrompt } from '../src/context.js';
 import { detectTextToolCall } from '../src/tui/runner.js';
 import { spinnerLine, subagentLines } from '../src/tui/components/spinner.js';
 import { createMarkdownState, renderMarkdownLine, renderPreviewBox } from '../src/tui/markdown.js';
@@ -124,6 +124,10 @@ test('skills, rules and MCP initialize and sync across agent profiles', () => {
   assert.ok(briefing.includes('@claude'));
   assert.ok(briefing.includes('cosmo-orchestration'));
   assert.ok(briefing.includes('filesystem'));
+  assert.match(briefing, /Before answering, editing files, or using tools, inspect and follow/);
+
+  const enriched = enrichPrompt('inspect the repository', { paths, cwd: base, agent: 'claude' });
+  assert.ok(enriched.indexOf('inspect and follow') < enriched.indexOf('User request:'));
 });
 
 test('TUI live tool detection, subagent tree HUD, and preview cards', () => {
@@ -260,7 +264,7 @@ test('copilot: verified flags for ask/auto, model and MCP', async () => {
   const { getAgent, buildHeadless } = await import('../src/agents.js');
   const copilot = getAgent('copilot');
   const ask = buildHeadless(copilot, 'review', { mode: 'ask', agentModel: 'auto', mcpConfig: '/c/cosmodrome-mcp.json' });
-  assert.deepEqual(ask.slice(0, 4), ['-p', 'review', '-s', '--no-color']);
+  assert.deepEqual(ask.slice(0, 7), ['-p', 'review', '--output-format', 'text', '--stream', 'off', '--no-color']);
   assert.ok(ask.includes('--deny-tool=write') && ask.includes('--deny-tool=shell') && ask.includes('--allow-all-urls'));
   assert.ok(!ask.includes('--allow-all-tools'));
   assert.ok(ask.join(' ').includes('--model auto'));
