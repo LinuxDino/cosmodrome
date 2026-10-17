@@ -138,7 +138,7 @@ test('orbit header steps down with the width and falls back to ASCII', async () 
   const narrow = header({ version: '1.0.0', cwd: '~/w', cols: 50, t: plain });
   assert.equal(narrow[0], '-(✦)-◉  cosmodrome v1.0.0 · ~/w');
   assert.ok(header({ version: '1', cwd: '~/a/very/long/folder/name/here', cols: 30, t: plain }).every((l) => width(l) <= 29));
-  assert.deepEqual(pickGlyphs({ LANG: 'C' }), { star: '*', sat: 'o', ascii: true });
+  assert.deepEqual(pickGlyphs({ LANG: 'C' }), { star: '*', sat: 'o', idle: '+', ascii: true });
   assert.equal(pickGlyphs({ LANG: 'de_DE.UTF-8' }).star, '✦');
   assert.equal(pickGlyphs({}).star, '✦');
   assert.equal(pickGlyphs({ LANG: 'en_US.UTF-8', COSMO_ASCII: '1' }).ascii, true);
@@ -189,4 +189,40 @@ test('ASCII mode swaps every interface symbol 1:1', () => {
   const drawn = writes[0].replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
   assert.ok(/^[\x20-\x7e\n\r]*$/.test(drawn), drawn);
   assert.ok(drawn.includes('* > > * v x ` .') && drawn.includes('+------'));
+});
+
+test('emoji and combined characters are measured and kept whole', async () => {
+  const { graphemes, clusterWidth } = await import('../src/tui/screen.js');
+  assert.equal(width('✅'), 2);
+  assert.equal(width('❤️'), 2);
+  assert.equal(width('👨‍👩‍👧'), 2);
+  assert.equal(width('🇩🇪'), 2);
+  assert.equal(width('e\u0301'), 1);
+  assert.equal(width('✦ ⏺ ↪'), 5, 'interface symbols stay one column');
+  assert.deepEqual(graphemes('a👨‍👩‍👧b'), ['a', '👨‍👩‍👧', 'b']);
+  assert.equal(clusterWidth('\t'), 1);
+  assert.equal(truncate('ab✅cd', 4), 'ab…');
+  assert.equal(width(truncate('\x1b]8;;https://x.y\x07link\x1b]8;;\x07 and more text', 6)), 6, 'OSC links take no room');
+  const box = promptBox({ chars: graphemes('hi 👨‍👩‍👧 ✅'), cursor: 4, cols: 30, t: plain });
+  assert.ok(box.lines.every((l) => width(l) === 29));
+  assert.equal(box.cursor.col, 4 + 5);
+});
+
+test('orbit map draws a profile with its agents as satellites', async () => {
+  const { orbitMap } = await import('../src/tui/components/orbitMap.js');
+  const lines = orbitMap({
+    profile: 'work',
+    agents: [{ name: 'claude', current: true, isDefault: true }, { name: 'copilot' }, { name: 'codex' }, { name: 'opencode' }],
+    missing: ['agy'],
+    t: plain,
+  });
+  assert.deepEqual(lines, [
+    '             ◉ claude (default)',
+    "        .'''      '''.",
+    '    ✦  work            ✧ copilot',
+    "        '...      ...'",
+    '             ✧ codex',
+    '    also: ✧ opencode',
+    '    not installed: agy',
+  ]);
 });

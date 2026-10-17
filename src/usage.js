@@ -11,6 +11,8 @@ const RATE_LIMIT_RE =
  * Detect whether a failed (or warning) agent run hit a provider usage, rate, or quota limit.
  */
 export function isUsageLimit({ code, stderr = '', text = '', result = null } = {}) {
+  // Only a failed run can be a usage limit: a good answer may well *talk about* rate limits.
+  if (!code && !result?.is_error) return false;
   const combined = `${stderr}\n${ result?.result || '' }\n${text}`;
   if (RATE_LIMIT_RE.test(combined)) return true;
   if (code && /limit|quota|429/i.test(combined)) return true;

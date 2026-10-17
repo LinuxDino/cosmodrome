@@ -4,7 +4,7 @@
 
 ```
   .-'''''-.
-.'    ✦    '.◉    cosmodrome v0.3.0
+.'    ✦    '.◉    cosmodrome v0.4.0
  '-._____.-'      ~/work/api
 / commands · # channel · @ other agent · ! shell · ? keys
 
@@ -33,6 +33,8 @@
 npm install -g cosmodrome      # macOS + Linux (Windows: WSL), Node >= 18.17
 cosmo doctor                   # what's installed, what's missing
 ```
+
+Update with `npm install -g cosmodrome@latest`. The same releases are also on GitHub Packages as `@linuxdino/cosmodrome` (see [docs/github-setup.md](docs/github-setup.md#github-packages)).
 
 Then install the agents you want (any subset):
 
@@ -66,7 +68,7 @@ hello!                # chat with the current channel
 | `@codex review this` | Ask another agent of the same profile once |
 | `!git status` | Shell command with the profile's GitHub + git identity |
 
-**Keys:** Enter sends · Tab completes · ↑↓ history/menu · Shift+Tab toggles ask/auto mode · Ctrl+O next agent · Esc interrupts · Ctrl+L clears · Alt+Enter new line · Ctrl+C twice exits.
+**Keys:** Enter sends · Tab completes · ↑↓ history/menu · Shift+Tab toggles ask/auto mode · Ctrl+O next agent · Esc interrupts · Ctrl+L clears · Alt+Enter or Ctrl+J new line · Ctrl+Z background · Ctrl+C twice exits.
 
 **Modes:** *ask* (default) lets the agent read files and search the web, with no edits. *auto* lets it edit files in the current folder. For anything bigger, `/native` opens the agent's full interface and brings you back here when you exit.
 

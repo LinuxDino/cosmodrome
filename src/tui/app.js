@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
-import { Screen, sanitize } from './screen.js';
+import { Screen, sanitize, graphemes } from './screen.js';
 import { t, pickGlyphs, reducedMotion } from './theme.js';
 import { header } from './components/header.js';
 import { promptBox } from './components/promptBox.js';
@@ -67,7 +67,7 @@ export class App {
   // ------------------------------------------------------------ plumbing
 
   cliCtx() {
-    return { ...this.ctx, cwd: this.state.cwd, interactive: true };
+    return { ...this.ctx, cwd: this.state.cwd, interactive: true, inTui: true };
   }
 
   reloadConfig() {
@@ -151,8 +151,29 @@ export class App {
       this.resizeTimer = setTimeout(() => this.render(), 50);
     };
     process.stdout.on('resize', this.resizeHandler);
-    this.restoreOnExit = () => this.restoreTerminal();
+    this.restoreOnExit = () => {
+      this.state.running?.signal?.('SIGTERM');
+      this.restoreTerminal();
+    };
     process.on('exit', this.restoreOnExit);
+    // A bug must not leave the terminal in raw mode or an agent running on its own.
+    this.crashHandler = (err) => {
+      this.state.running?.signal?.('SIGTERM');
+      this.screen.clear();
+      this.restoreTerminal();
+      process.stderr.write(`\n✗ cosmo crashed: ${err?.stack || err}\n`);
+      process.exit(1);
+    };
+    process.on('uncaughtException', this.crashHandler);
+    process.on('unhandledRejection', this.crashHandler);
+    // Ctrl+Z: give the terminal back to the shell; `fg` brings the interface back.
+    this.contHandler = () => {
+      if (this.exited) return;
+      process.stdin.setRawMode(true);
+      process.stdout.write('\x1b[?2004h');
+      this.render();
+    };
+    process.on('SIGCONT', this.contHandler);
     // Agents run in their own process group, so pass a closing terminal on to them.
     for (const [sig, code] of [['SIGHUP', 129], ['SIGTERM', 143]]) {
       process.once(sig, () => {
@@ -162,6 +183,9 @@ export class App {
       });
     }
 
+    // Start on a clean window: push what is on screen up into the scrollback (nothing is
+    // erased), then begin at the top-left corner. COSMO_NO_CLEAR=1 starts where the cursor is.
+    if (this.ctx.env.COSMO_NO_CLEAR !== '1') process.stdout.write('\n'.repeat(this.screen.rows) + '\x1b[H');
     this.print(header({ version: VERSION, cwd: tildify(this.state.cwd, this.ctx.paths.home), cols: this.screen.cols, t, glyphs: this.glyphs }));
     for (const e of this.modules.errors) this.print(`  ${t.red('✗')} module ${e.name}: ${t.dim(e.message)}`);
     if (!Object.keys(this.config.profiles).length) {
@@ -251,7 +275,7 @@ export class App {
 
   clearScreen() {
     this.screen.clear();
-    process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+    process.stdout.write('\x1b[2J\x1b[H'); // scrollback stays
     this.screen.lines = 0;
     this.print(header({ version: VERSION, cwd: tildify(this.state.cwd, this.ctx.paths.home), cols: this.screen.cols, t, glyphs: this.glyphs, compact: true }));
   }
@@ -406,7 +430,7 @@ export class App {
   // ------------------------------------------------------------ input
 
   setInput(text) {
-    this.state.input = Array.from(text);
+    this.state.input = graphemes(text);
     this.state.cursor = this.state.input.length;
     this.state.menuIndex = 0;
     this.state.menuDismissed = false;
@@ -414,7 +438,7 @@ export class App {
 
   insert(str) {
     const s = this.state;
-    const chars = Array.from(str);
+    const chars = graphemes(str);
     s.input.splice(s.cursor, 0, ...chars);
     s.cursor += chars.length;
     s.menuDismissed = false;
@@ -508,6 +532,15 @@ export class App {
       else if (sugg.length) this.setInput(sugg[s.menuIndex].value);
       return this.render();
     }
+    // New line: Alt+Enter, Ctrl+J (sends "enter", where Enter sends "return"), or "\" + Enter.
+    if (key.name === 'enter' && !key.meta && str === '\n') {
+      this.insert('\n');
+      return this.render();
+    }
+    if ((key.name === 'return' || key.name === 'enter') && !key.meta && s.input[s.cursor - 1] === '\\') {
+      s.input.splice(s.cursor - 1, 1, '\n');
+      return this.render();
+    }
     if (key.name === 'return' || key.name === 'enter') {
       if (key.meta) {
         this.insert('\n');
@@ -546,6 +579,7 @@ export class App {
     } else if (key.ctrl && key.name === 'k') s.input.splice(s.cursor);
     else if (key.ctrl && key.name === 'w') this.deleteWordBack();
     else if (key.ctrl && key.name === 'l') return this.clearScreen();
+    else if (key.ctrl && key.name === 'z') return this.suspendToShell();
     else if (key.ctrl && key.name === 'o') this.channels.cycleAgent();
     else if (str === '?' && !s.input.length && !key.ctrl && !key.meta) return this.printHelp();
     else if (str && !key.ctrl && !key.meta && !/[\x00-\x08\x0b-\x1f\x7f]/.test(str)) this.insert(str.replace(/\r\n?/g, '\n'));
@@ -628,15 +662,23 @@ export class App {
   endRun() {
     clearInterval(this.spinnerTimer);
     this.state.running = null;
-    if (this.state.notice === 'Interrupting…') this.state.notice = null;
+    if (this.state.notice?.startsWith('Interrupting')) this.state.notice = null;
   }
 
   cancelRun() {
     const r = this.state.running;
     if (!r) return;
     r.cancel?.();
-    this.state.notice = 'Interrupting…';
+    this.state.notice = r.interrupted ? 'Interrupting… (stopping it now)' : 'Interrupting… (esc again to force-stop)';
+    r.interrupted = true;
     this.render();
+  }
+
+  suspendToShell() {
+    this.screen.clear();
+    this.restoreTerminal();
+    process.stdout.write(t.dim('cosmo is in the background - type fg to come back\n'));
+    process.kill(process.pid, 'SIGTSTP');
   }
 
   /** Stream lines of an answer with ⏺ on the first line, like Claude Code. */

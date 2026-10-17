@@ -1,27 +1,66 @@
 name: Release
+# Two ways to publish:
+# - push a tag vX.Y.Z (from your machine), or
+# - Actions -> Release -> Run workflow: pick the commit; the workflow tags it vX.Y.Z
+#   (version from that commit's package.json) and publishes.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, branch or tag to release (its package.json sets the version)
+        required: true
+        default: main
 permissions:
   contents: read
-  id-token: write   # lets npm verify this workflow (trusted publishing + provenance)
+concurrency:
+  group: release
+  cancel-in-progress: false
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the release tag when started by hand
+      id-token: write   # lets npm verify this workflow (trusted publishing + provenance)
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
         with:
-          node-version: 22
-          registry-url: https://registry.npmjs.org
-      - run: npm install -g npm@11   # trusted publishing needs npm 11.5.1 or newer
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+          fetch-depth: 0
+      # No registry-url here on purpose: with it, setup-node writes an .npmrc with a
+      # placeholder token (NODE_AUTH_TOKEN=XXXXX-...), and npm then publishes with that
+      # token instead of the GitHub OIDC login, which npm answers with 404.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24   # ships npm 11
+      - name: Check npm   # trusted publishing needs npm 11.5.1 or newer
+        run: |
+          echo "node $(node -v), npm $(npm -v)"
+          if ! node -e 'const [a, b, c] = process.argv[1].split(".").map(Number); process.exit(a > 11 || (a === 11 && (b > 5 || (b === 5 && c >= 1))) ? 0 : 1)' "$(npm -v)"; then
+            npm install -g npm@11
+          fi
       - name: Check version
         id: version
+        env:
+          EVENT: ${{ github.event_name }}
         run: |
           version=$(node -p "require('./package.json').version")
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+          tag="v$version"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = "push" ] && [ "$tag" != "$GITHUB_REF_NAME" ]; then
             echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $version"
             exit 1
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            existing=$(git rev-parse -q --verify "refs/tags/$tag^{commit}" || true)
+            if [ -n "$existing" ] && [ "$existing" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::Tag $tag already exists on another commit ($existing)"
+              exit 1
+            fi
+            if [ -z "$existing" ]; then
+              echo "create_tag=true" >> "$GITHUB_OUTPUT"
+            fi
           fi
           if npm view "cosmodrome@$version" version >/dev/null 2>&1; then
             echo "::notice::cosmodrome@$version is already on npm - nothing to publish"
@@ -31,3 +70,58 @@ jobs:
         run: npm test
       - if: steps.version.outputs.skip != 'true'
         run: npm publish --provenance --access public
+      # Tag after a successful publish, as the person who started the run. A tag pushed
+      # with GITHUB_TOKEN does not start this workflow again, so nothing is published twice.
+      - if: steps.version.outputs.create_tag == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+        run: |
+          git config user.name "$ACTOR"
+          git config user.email "$ACTOR_ID+$ACTOR@users.noreply.github.com"
+          git tag -a "$TAG" -m "cosmodrome ${TAG#v}"
+          git push origin "$TAG"
+
+  # The same version on GitHub Packages. Its npm registry only takes packages scoped to
+  # the repo owner, so the name becomes @linuxdino/cosmodrome here (package.json keeps
+  # "cosmodrome" for npmjs.com). Independent of the npmjs job: a version that is already
+  # on npmjs.com still gets published here.
+  github-packages:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://npm.pkg.github.com   # GitHub Packages uses GITHUB_TOKEN, so the token .npmrc is right here
+          scope: '@linuxdino'
+      - name: Check version
+        id: version
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "$EVENT" = "push" ] && [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+          if npm view "@linuxdino/cosmodrome@$version" version >/dev/null 2>&1; then
+            echo "::notice::@linuxdino/cosmodrome@$version is already on GitHub Packages - nothing to publish"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.version.outputs.skip != 'true'
+        run: npm test
+      - name: Publish @linuxdino/cosmodrome
+        if: steps.version.outputs.skip != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm pkg set name=@linuxdino/cosmodrome
+          npm publish --registry=https://npm.pkg.github.com
