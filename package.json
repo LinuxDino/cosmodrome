@@ -1,6 +1,6 @@
 {
   "name": "cosmodrome",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Claude Code-style interface for all your AI coding agents: channels per profile and agent, slash commands, artifacts, and separate work/private logins.",
   "repository": {
     "type": "git",

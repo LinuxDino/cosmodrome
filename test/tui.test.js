@@ -12,8 +12,29 @@ import { renderMarkdownLine, createMarkdownState } from '../src/tui/markdown.js'
 import { width, truncate, sanitize, Screen } from '../src/tui/screen.js';
 import { ChannelManager, recordRun } from '../src/tui/channels.js';
 import { runProcess } from '../src/tui/runner.js';
+import { renderDashboard, renderProviderHealth, renderProviderMetrics, renderTaskMetrics, renderTaskTree } from '../src/tui/components/dashboard.js';
+import { App } from '../src/tui/app.js';
 
 const plain = new Proxy({}, { get: () => (s) => String(s) });
+
+test('dashboard renders compact task tree and provider panels', () => {
+  const tasks = [
+    { id: 'root', prompt: 'Ship dashboard', status: 'executing', assignedAgent: 'claude', parentTaskId: null },
+    { id: 'child', prompt: 'Run tests', status: 'completed', assignedAgent: 'codex', parentTaskId: 'root' },
+  ];
+  const rows = [{ profile: 'work', agent: 'claude', runs: 2, errors: 1, rateLimits: 0, costUsd: 0.12, durationMs: 2500, throttled: false }];
+  const tree = renderTaskTree(tasks, { t: plain, cols: 60 });
+  assert.ok(tree.some((line) => line.includes('[>] Ship dashboard @claude')));
+  assert.ok(tree.some((line) => line.includes('`-[x] Run tests @codex')));
+  assert.ok(renderProviderHealth(rows, { t: plain }).some((line) => line.includes('[degraded]')));
+  assert.ok(renderProviderHealth([{ profile: 'work', agent: 'opencode', installed: false }], { t: plain }).some((line) => line.includes('[not installed]')));
+  assert.ok(renderProviderMetrics(rows, { t: plain }).some((line) => line.includes('runs 2')));
+  assert.ok(renderTaskMetrics([
+    { status: 'completed', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:02Z' },
+    { status: 'failed', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:04Z' },
+  ], { t: plain }).some((line) => line.includes('success 50%')));
+  assert.ok(renderDashboard({ tasks, rows, t: plain }).includes('Cosmodrome dashboard'));
+});
 
 test('headless args per agent and mode', () => {
   const claude = getAgent('claude');
@@ -127,6 +148,23 @@ test('screen draws each frame in one synchronized write', () => {
   assert.equal(writes.length, 2);
   for (const w of writes) assert.ok(w.startsWith('\x1b[?2026h') && w.endsWith('\x1b[?2026l'));
   assert.ok(writes[1].includes('\x1b[J'), 'second frame erases the first');
+});
+
+test('app coalesces near-simultaneous render requests', async () => {
+  const app = Object.create(App.prototype);
+  app.state = { suspended: false };
+  app.exited = false;
+  app.renderTimer = null;
+  let renders = 0;
+  app.render = () => {
+    renders++;
+  };
+
+  app.requestRender();
+  app.requestRender();
+  assert.equal(renders, 0);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(renders, 1);
 });
 
 test('orbit header steps down with the width and falls back to ASCII', async () => {

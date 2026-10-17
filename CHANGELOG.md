@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0
+- New: `/dashboard` shows durable parent/child task progress, assigned agents, elapsed time, and recent events.
+- New: `/health` summarizes installed providers, cooldowns, errors, latency, and recent usage.
+- New: `/metrics` reports task throughput, success rate, latency, and provider performance.
+- New: delegated work remains visible as child tasks and can be inspected with `/task <id>`.
+- Improved: task event lookup is indexed in memory while the interface is running, avoiding repeated full JSONL scans.
+- Improved: live TUI rendering coalesces high-frequency updates to reduce terminal work.
+
 ## 0.7.0
 - New: durable task journal with task IDs, event history, checkpoints, restart recovery, and `/tasks`, `/resume`, and `/cancel` controls.
 - New: governance roster and review loops. `/roster` shows agent responsibilities, `/review` audits project health read-only, and `/loop` requires plan, execution, verification, review, and acceptance checks.

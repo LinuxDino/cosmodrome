@@ -226,6 +226,8 @@ export class App {
     this.screen.clear();
     this.exited = true;
     clearInterval(this.spinnerTimer);
+    clearTimeout(this.renderTimer);
+    this.renderTimer = null;
     process.stdin.off('keypress', this.keyHandler);
     process.stdout.off('resize', this.resizeHandler);
     this.restoreTerminal();
@@ -326,6 +328,14 @@ export class App {
 
   // ------------------------------------------------------------ rendering
 
+  requestRender() {
+    if (this.state.suspended || this.exited || this.renderTimer) return;
+    this.renderTimer = setTimeout(() => {
+      this.renderTimer = null;
+      this.render();
+    }, 16);
+  }
+
   suggestions() {
     const s = this.state;
     if (s.menuDismissed || s.running) return [];
@@ -376,6 +386,10 @@ export class App {
   }
 
   render() {
+    if (this.renderTimer) {
+      clearTimeout(this.renderTimer);
+      this.renderTimer = null;
+    }
     if (this.state.suspended || this.exited) return;
     const s = this.state;
     const cols = this.screen.cols;
@@ -678,7 +692,7 @@ export class App {
     clearInterval(this.spinnerTimer);
     this.spinnerTimer = setInterval(() => {
       s.spinnerFrame++;
-      this.render();
+      this.requestRender();
     }, 120);
   }
 
@@ -943,6 +957,7 @@ export class App {
         isInstalled: (a) => this.channels.installed(a),
       });
       return {
+        taskId: null,
         agent: picked.agent,
         mode: this.effectiveMode(c.mode || 'ask'),
         prompt: c.prompt,
@@ -952,6 +967,27 @@ export class App {
         endedAt: null,
       };
     });
+
+    // Delegated work is real work: persist each specialist request so it can be
+    // inspected and resumed after the parent run or the UI is interrupted.
+    for (const sub of subStates) {
+      const child = this.tasks.create({
+        prompt: sub.prompt,
+        cwd: this.state.cwd,
+        profile: ch.profile,
+        mode: sub.mode,
+        parentTaskId: taskId,
+        assignedAgent: sub.agent,
+        origin: council ? 'council' : 'delegation',
+      });
+      sub.taskId = child.id;
+    }
+    if (taskId) {
+      this.tasks.checkpoint(taskId, {
+        phase: council ? 'council' : 'delegation',
+        childTaskIds: subStates.map((sub) => sub.taskId),
+      });
+    }
 
     this.startRun(
       council ? 'council' : `${subStates.length} subagent${subStates.length === 1 ? '' : 's'}`,
@@ -968,6 +1004,9 @@ export class App {
     this.render();
 
     const runSingleSub = async (sub) => {
+      const finishChild = (patch, event) => {
+        if (sub.taskId) this.tasks.update(sub.taskId, patch, event);
+      };
       const tried = new Set();
       for (;;) {
         const agent = getAgent(sub.agent, this.config, this.ctx.platform);
@@ -975,8 +1014,10 @@ export class App {
           sub.status = 'error';
           sub.action = 'not installed';
           sub.endedAt = Date.now();
+          finishChild({ status: 'failed', phase: 'failed', lastError: 'Agent is not installed.' }, 'task.failed');
           return { agent: sub.agent, code: 127, text: '', stderr: 'not installed' };
         }
+        finishChild({ status: 'executing', phase: 'agent', assignedAgent: agent.name, lastError: null }, 'agent.started');
         const bin = this.cli.requireBin(agent, this.ctx);
         const plan = this.cli.plan(this.config, ch.profile, agent, this.cliCtx());
         const delegatedPrompt = enrichPrompt(sub.prompt, {
@@ -1002,7 +1043,7 @@ export class App {
               this.state.running.action = { name: `@${sub.agent}:${name}`, detail };
               this.state.running.toolCount = (this.state.running.toolCount || 0) + 1;
             }
-            this.render();
+            this.requestRender();
           },
           onText: (line) => {
             if (line.trim()) sub.action = line.trim().slice(0, 36);
@@ -1034,6 +1075,12 @@ export class App {
         sub.endedAt = Date.now();
         sub.status = res.code === 0 ? 'done' : 'error';
         sub.action = res.code === 0 ? 'completed' : `exit ${res.code}`;
+        finishChild({
+          status: res.code === 0 ? 'completed' : 'failed',
+          phase: res.code === 0 ? 'completed' : 'failed',
+          assignedAgent: agent.name,
+          lastError: res.code === 0 ? null : `Agent exited with code ${res.code}.`,
+        }, res.code === 0 ? 'task.completed' : 'task.failed');
         this.render();
         return { agent: agent.name, ...res };
       }
@@ -1067,7 +1114,7 @@ export class App {
 
     this.lastResponse = { text: combinedText, prompt: parentPrompt, channel: `${ch.profile}/multi`, title: saveAs?.title };
     if (taskId) {
-      const succeeded = results.some((result) => result.code === 0);
+      const succeeded = results.length > 0 && results.every((result) => result.code === 0);
       this.tasks.update(
         taskId,
         { status: succeeded ? 'completed' : 'failed', phase: succeeded ? 'completed' : 'failed', lastError: succeeded ? null : 'All delegated agents failed.' },

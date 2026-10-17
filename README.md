@@ -56,6 +56,9 @@ Inside the interface:
 /login claude                 Sign in through the agent's official CLI
 Implement the next feature    Route and execute a task automatically
 /tasks                        List saved and unfinished work
+/dashboard                    Show task tree, provider health, and failovers
+/health                       Show provider availability and cooldowns
+/metrics                      Show provider and task performance
 /review                       Review project health and agent ownership
 /loop ship the feature        Run a verified implementation loop
 ```
@@ -67,6 +70,7 @@ Useful shortcuts:
 - `/mode ask` — read-only execution
 - `/mode auto` — allow edits
 - `/resume <task-id>` — continue work after a restart
+- `/task <task-id>` — inspect delegated children and recent events
 - `Esc` — interrupt the active run
 
 See the complete command and keyboard reference in [docs/interface.md](docs/interface.md).
