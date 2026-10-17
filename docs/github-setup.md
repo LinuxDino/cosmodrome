@@ -102,6 +102,19 @@ or start it on GitHub without a tag: bump the version in `package.json` on `main
 
 Docs: https://docs.npmjs.com/trusted-publishers
 
+### GitHub Packages
+
+Every release is also published to GitHub Packages by the `github-packages` job in `release.yml`, with the workflow's own `GITHUB_TOKEN` (no secret to set up). GitHub's npm registry only accepts packages scoped to the repository owner, so there the package is called **`@linuxdino/cosmodrome`**; the workflow renames it just before publishing, and `package.json` keeps `cosmodrome` for npmjs.com. It shows up under the repository's **Packages** section.
+
+Installing from GitHub Packages needs a GitHub token, even for a public package:
+```bash
+# once: a classic personal access token with the read:packages scope
+echo "@linuxdino:registry=https://npm.pkg.github.com" >> ~/.npmrc
+echo "//npm.pkg.github.com/:_authToken=YOUR_TOKEN" >> ~/.npmrc
+npm install -g @linuxdino/cosmodrome
+```
+npmjs.com (`npm install -g cosmodrome`) stays the simplest way for everyone else.
+
 ### Recommended repo settings
 - Protect `main`: require the CI check to pass, require PRs.
 - Enable Dependabot alerts (only for GitHub Actions, since the package has no runtime dependencies).

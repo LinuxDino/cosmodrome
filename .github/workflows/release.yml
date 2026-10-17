@@ -13,14 +13,16 @@ on:
         required: true
         default: main
 permissions:
-  contents: write   # create the release tag when started by hand
-  id-token: write   # lets npm verify this workflow (trusted publishing + provenance)
+  contents: read
 concurrency:
   group: release
   cancel-in-progress: false
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the release tag when started by hand
+      id-token: write   # lets npm verify this workflow (trusted publishing + provenance)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -73,3 +75,46 @@ jobs:
           git config user.email "$ACTOR_ID+$ACTOR@users.noreply.github.com"
           git tag -a "$TAG" -m "cosmodrome ${TAG#v}"
           git push origin "$TAG"
+
+  # The same version on GitHub Packages. Its npm registry only takes packages scoped to
+  # the repo owner, so the name becomes @linuxdino/cosmodrome here (package.json keeps
+  # "cosmodrome" for npmjs.com). Independent of the npmjs job: a version that is already
+  # on npmjs.com still gets published here.
+  github-packages:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://npm.pkg.github.com
+          scope: '@linuxdino'
+      - name: Check version
+        id: version
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "$EVENT" = "push" ] && [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+          if npm view "@linuxdino/cosmodrome@$version" version >/dev/null 2>&1; then
+            echo "::notice::@linuxdino/cosmodrome@$version is already on GitHub Packages - nothing to publish"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.version.outputs.skip != 'true'
+        run: npm test
+      - name: Publish @linuxdino/cosmodrome
+        if: steps.version.outputs.skip != 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm pkg set name=@linuxdino/cosmodrome
+          npm publish --registry=https://npm.pkg.github.com
