@@ -23,4 +23,4 @@ Config `~/.config/cosmodrome/config.json` · profiles `~/.local/share/cosmodrome
 Shared macOS Keychain for agy and Claude Code before ~2.1.121 (`doctor` warns) · agy's private HOME hides `~/.ssh` · login state can't be verified offline · headless flags can change between agent versions (each lives in `src/agents.js`).
 
 ## Later
-git worktree per fleet pane · ACP transport for richer tool views · artifact preview pane.
+git worktree per fleet pane · ACP transport for richer tool views.

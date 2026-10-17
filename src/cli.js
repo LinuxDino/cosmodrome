@@ -308,7 +308,7 @@ async function doctorCmd(args, ctx) {
     if (a === 'ollama' && bin) {
       const models = listOllamaModels({ env: ctx.env });
       const active = pickLocalModel(models, config || {}, ctx.env);
-      detail += models.length ? ` · model: ${active} (${models.length} local)` : ' · no models yet (run: ollama pull qwen2.5-coder)';
+      detail += models.length ? ` · model: ${active} (${models.length} local)` : ' · no models yet (run: ollama pull qwen3:8b)';
     }
     check(Boolean(bin), `${a.padEnd(9)} ${agent.label}`, detail);
   }

@@ -22,7 +22,7 @@ import {
 import { buildCosmoContext, enrichPrompt } from '../src/context.js';
 import { detectTextToolCall } from '../src/tui/runner.js';
 import { spinnerLine, subagentLines } from '../src/tui/components/spinner.js';
-import { createMarkdownState, renderMarkdownLine, renderPreviewBox } from '../src/tui/markdown.js';
+import { createMarkdownState, renderMarkdownLine } from '../src/tui/markdown.js';
 import { getAgent } from '../src/agents.js';
 
 const plain = new Proxy({}, { get: () => (s) => String(s) });
@@ -74,7 +74,7 @@ test('orchestrator parses <cosmo:subagent> and <cosmo:tool> tags and routes task
   assert.deepEqual(tool, { name: 'WebSearch', detail: 'node test runner' });
   assert.equal(stripCosmoTags(output), 'Let me delegate this to specialists:');
 
-  assert.equal(pickLocalModel(['mistral:latest', 'qwen2.5-coder:7b'], {}, {}), 'qwen2.5-coder:7b');
+  assert.equal(pickLocalModel(['mistral:latest', 'qwen3.5:9b'], {}, {}), 'qwen3.5:9b');
   assert.equal(routePromptToAgent('search the web for latest docs', ['claude', 'agy']).agent, 'agy');
   assert.equal(routePromptToAgent('fix test suite in sandbox', ['claude', 'codex']).agent, 'codex');
 });
@@ -130,7 +130,7 @@ test('skills, rules and MCP initialize and sync across agent profiles', () => {
   assert.ok(enriched.indexOf('inspect and follow') < enriched.indexOf('User request:'));
 });
 
-test('TUI live tool detection, subagent tree HUD, and preview cards', () => {
+test('TUI live tool detection and subagent tree HUD', () => {
   assert.deepEqual(detectTextToolCall('<cosmo:tool name="Read" detail="src/cli.js" />'), {
     name: 'Read',
     detail: 'src/cli.js',
@@ -165,13 +165,9 @@ test('TUI live tool detection, subagent tree HUD, and preview cards', () => {
   assert.ok(tree[1].includes('└─') && tree[1].includes('@agy'));
 
   const st = createMarkdownState();
-  assert.ok(renderMarkdownLine('```preview Architecture', st, plain).includes('✦ Architecture'));
+  assert.ok(renderMarkdownLine('```markdown', st, plain).includes('┌─ markdown'));
   assert.ok(renderMarkdownLine('See [app.js](file:///repo/src/app.js#L10)', st, plain).includes('app.js'));
-  assert.ok(renderMarkdownLine('```', st, plain).includes('╰'));
-
-  const box = renderPreviewBox({ title: 'package.json', url: 'file:///repo/package.json', lines: ['{', '  "name": "cosmodrome"', '}'], t: plain });
-  assert.equal(box.length, 5);
-  assert.ok(box[0].includes('package.json'));
+  assert.ok(renderMarkdownLine('```', st, plain).includes('└─'));
 });
 
 test('agent sync keeps user files and never touches Claude state', async () => {

@@ -7,7 +7,7 @@ import { which } from '../system.js';
 import { CosmoError, closest } from '../ui.js';
 import { saveConfig } from '../config.js';
 import { listArtifacts, saveArtifact, zipArtifacts, artifactsRoot } from '../artifacts.js';
-import { createMarkdownState, renderMarkdownLine, renderPreviewBox } from './markdown.js';
+import { createMarkdownState, renderMarkdownLine } from './markdown.js';
 import { orbitMap } from './components/orbitMap.js';
 import { runDelegation, runCouncil, listOllamaModels, pickLocalModel } from '../orchestrator.js';
 import { loadSkills, loadRules, loadMcpServers, initCustomizations, syncAgentCustomizations, cosmoMdPath, COSMO_MD_TEMPLATE } from '../skills.js';
@@ -429,28 +429,6 @@ export function registerBuiltinCommands(app) {
             ? `  ${t.magenta('✦')} ${t.bold('Local AI router ON')} ${t.dim(`· model: ${model} · auto-delegates & switches on usage limits`)}`
             : `  ${t.dim('Local AI router OFF · messages go directly to #' + (app.channels.id || 'channel'))}`,
         );
-      },
-    },
-    {
-      name: 'preview',
-      aliases: ['p'],
-      args: '<file|#artifact>',
-      description: 'Render an inline terminal preview card for a file or artifact',
-      complete: artifactCompletions,
-      run: (args) => {
-        const q = (args || '').trim();
-        if (!q) throw new CosmoError('Specify a file path or artifact number to preview.', { hint: '/preview package.json  or  /preview 1' });
-        const candidate = path.resolve(app.state.cwd, expandHome(q, app.ctx.paths.home));
-        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-          const lines = fs.readFileSync(candidate, 'utf8').split('\n');
-          const rel = path.relative(app.state.cwd, candidate) || path.basename(candidate);
-          app.print(renderPreviewBox({ title: rel, url: `file://${candidate}`, lines, t }));
-          return;
-        }
-        const [a] = pickArtifacts(artifactsOf(app).list, q);
-        const main = a.files[0] ? path.join(a.dir, a.files[0]) : null;
-        const lines = main && fs.existsSync(main) ? fs.readFileSync(main, 'utf8').split('\n') : [];
-        app.print(renderPreviewBox({ title: `#${a.n} ${a.title}`, url: `file://${main || a.dir}`, lines, t }));
       },
     },
     {

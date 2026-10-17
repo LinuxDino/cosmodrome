@@ -3,8 +3,11 @@ import { AGENT_ROLES } from './context.js';
 import { DEFAULT_PRIORITY } from './usage.js';
 
 const PREFERRED_LOCAL_MODELS = [
-  'qwen2.5-coder',
+  'qwen3.5',
   'qwen3',
+  'ministral-3',
+  'gemma4',
+  'qwen2.5-coder',
   'llama3.2',
   'llama3.1',
   'deepseek-r1',
@@ -35,7 +38,7 @@ export function listOllamaModels({ env = process.env, captureFn = capture } = {}
 export function pickLocalModel(installedModels = [], config = {}, env = process.env) {
   if (env.COSMO_LOCAL_MODEL) return env.COSMO_LOCAL_MODEL;
   if (config?.localModel) return config.localModel;
-  if (!installedModels.length) return 'qwen2.5-coder';
+  if (!installedModels.length) return 'qwen3:8b';
   for (const pref of PREFERRED_LOCAL_MODELS) {
     const hit = installedModels.find((m) => m.toLowerCase().startsWith(pref));
     if (hit) return hit;

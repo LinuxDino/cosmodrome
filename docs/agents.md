@@ -79,7 +79,7 @@ Each profile can pick a model per agent: `/model claude opus` in the interface, 
 | copilot | `--model` | `auto` (Copilot picks) |
 | codex | `exec --model` | a model your Codex plan offers |
 | opencode | `run --model` | `provider/model` |
-| ollama | the model name | `qwen3:8b` |
+| ollama | the model name | `qwen3.5:9b`, `qwen3:8b`, `ministral-3:8b` |
 | agy | none yet: agy uses its own setting | |
 
 `agents.<name>.model` at the top level sets a default for all profiles. Custom agents can take a model with `"headless": { "modelArgs": ["--model", "{model}"] }`.

@@ -60,10 +60,11 @@ When the interface starts, and after every `/cd`, the profile whose `workdir` co
 
 With [Ollama](https://ollama.com) installed, `ollama` is one more agent (`@ollama`, also `@local`): it runs on your machine, needs no account and costs nothing.
 
-- `/router` turns router mode on: a local model makes a short delegation decision and hands complex work to advisor agents (`<cosmo:subagent agent="codex">…</cosmo:subagent>`). Advisors run in parallel; Claude finalizes the findings when available. `/router off` turns it off, `/router qwen3:8b` picks the model.
+- `/router` configures the local router: a local model makes a short delegation decision and hands complex work to advisor agents (`<cosmo:subagent agent="codex">…</cosmo:subagent>`). Router mode starts enabled, advisors run in parallel, and Claude finalizes findings when available. `/router off` sends messages directly to the active channel; `/router qwen3:8b` selects a model.
 - `/delegate <task>` does that once; `/council <question>` asks several agents in parallel and merges their answers.
 - The model is the best one you have installed (`ollama list`), or `COSMO_LOCAL_MODEL`. Small tool-calling models such as Qwen3 8B are enough, since the real work stays with the agents.
 - The router is intentionally concise and skips planning for simple requests. Subagents never get more rights than you: in ask mode they are read-only, whatever the plan says. One answer starts at most 4 subagents.
+- Automatic model selection prefers `qwen3.5`, `qwen3`, `ministral-3`, `gemma4`, then `qwen2.5-coder`. Set `COSMO_LOCAL_MODEL` to override it.
 - When an agent hits a usage limit, the message goes to the next installed agent of the same profile and the first one pauses for 10 minutes. `/usage` shows runs, cost, cooldowns and switches.
 
 ## Shared rules, skills and MCP
