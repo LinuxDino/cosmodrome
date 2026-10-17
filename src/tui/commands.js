@@ -410,7 +410,7 @@ export function registerBuiltinCommands(app) {
         if (sub === 'sync') {
           let count = 0;
           for (const pName of Object.keys(app.config.profiles || {})) {
-            for (const aName of agentNames(app.config)) {
+            for (const aName of agentNames(app.config).filter((a) => app.channels.installed(a))) {
               const agent = getAgent(aName, app.config, app.ctx.platform);
               const agentDir = path.join(app.ctx.paths.stationDir, pName, 'agents', agent.name);
               const res = syncAgentCustomizations({ agent, agentDir, paths: app.ctx.paths, cwd: app.state.cwd });

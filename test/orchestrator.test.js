@@ -169,3 +169,72 @@ test('TUI live tool detection, subagent tree HUD, and preview cards', () => {
   assert.equal(box.length, 5);
   assert.ok(box[0].includes('package.json'));
 });
+
+test('agent sync keeps user files and never touches Claude state', async () => {
+  const { syncAgentCustomizations, writeManagedBlock, mergeJsonFile, parseSkillFile } = await import('../src/skills.js');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cosmo-sync-'));
+  const paths = { configDir: path.join(root, 'cfg') };
+  fs.mkdirSync(paths.configDir, { recursive: true });
+  fs.writeFileSync(path.join(paths.configDir, 'rules.md'), 'Be brief.');
+  fs.writeFileSync(path.join(paths.configDir, 'mcp.json'), JSON.stringify({ mcpServers: { docs: { command: 'docs-mcp' } } }));
+  const agentDir = path.join(root, 'claude');
+  fs.mkdirSync(agentDir);
+  fs.writeFileSync(path.join(agentDir, 'CLAUDE.md'), '# My own notes\nkeep me\n');
+  fs.writeFileSync(path.join(agentDir, '.claude.json'), '{"oauthAccount":{"x":1}}');
+
+  const res = syncAgentCustomizations({ agent: { name: 'claude' }, agentDir, paths, cwd: root });
+  const md = fs.readFileSync(path.join(agentDir, 'CLAUDE.md'), 'utf8');
+  assert.match(md, /# My own notes\nkeep me/);
+  assert.match(md, /cosmodrome:start[\s\S]*Be brief\.[\s\S]*cosmodrome:end/);
+  assert.equal(fs.readFileSync(path.join(agentDir, '.claude.json'), 'utf8'), '{"oauthAccount":{"x":1}}');
+  assert.deepEqual(JSON.parse(fs.readFileSync(res.mcpConfig, 'utf8')).mcpServers, { docs: { command: 'docs-mcp' } });
+
+  // a second sync replaces only the managed block
+  fs.writeFileSync(path.join(paths.configDir, 'rules.md'), 'Be very brief.');
+  syncAgentCustomizations({ agent: { name: 'claude' }, agentDir, paths, cwd: root });
+  const md2 = fs.readFileSync(path.join(agentDir, 'CLAUDE.md'), 'utf8');
+  assert.equal((md2.match(/cosmodrome:start/g) || []).length, 1);
+  assert.match(md2, /Be very brief\./);
+  assert.doesNotMatch(md2, /Be brief\./);
+
+  assert.equal(writeManagedBlock(path.join(root, 'x.md'), ''), false);
+  const broken = path.join(root, 'broken.json');
+  fs.writeFileSync(broken, '{ not json');
+  assert.equal(mergeJsonFile(broken, () => ({ a: 1 })), false);
+  assert.equal(fs.readFileSync(broken, 'utf8'), '{ not json');
+
+  assert.equal(parseSkillFile('---\nname: ../../.ssh/evil\n---\nbody').name, 'ssh-evil');
+});
+
+test('claude gets the MCP file as one --mcp-config= argument', async () => {
+  const { getAgent, buildHeadless } = await import('../src/agents.js');
+  const args = buildHeadless(getAgent('claude'), 'hi', { mode: 'ask', mcpConfig: '/p/cosmodrome-mcp.json' });
+  assert.ok(args.includes('--mcp-config=/p/cosmodrome-mcp.json'));
+  assert.deepEqual(args.slice(-2), ['--', 'hi']);
+});
+
+test('model output can lower the run mode but never raise it', async () => {
+  const { App } = await import('../src/tui/app.js');
+  const effective = (userMode, requested) => App.prototype.effectiveMode.call({ state: { mode: userMode } }, requested);
+  assert.equal(effective('ask', 'auto'), 'ask');
+  assert.equal(effective('auto', 'auto'), 'auto');
+  assert.equal(effective('auto', 'ask'), 'ask');
+  assert.equal(effective('auto', undefined), 'auto');
+  assert.equal(effective('ask', 'whatever'), 'ask');
+});
+
+test('one answer starts at most MAX_SUBAGENTS subagents', async () => {
+  const { parseSubagentCalls, MAX_SUBAGENTS } = await import('../src/orchestrator.js');
+  const many = Array.from({ length: 10 }, (_, i) => `<cosmo:subagent agent="codex">task ${i}</cosmo:subagent>`).join('\n');
+  assert.equal(parseSubagentCalls(many).length, MAX_SUBAGENTS);
+});
+
+test('subagent tags are hidden while an answer streams', async () => {
+  const { createSubagentTagFilter } = await import('../src/orchestrator.js');
+  const f = createSubagentTagFilter();
+  assert.equal(f('Plan:'), 'Plan:');
+  assert.equal(f('<cosmo:subagent agent="codex">write'), null);
+  assert.equal(f('the tests</cosmo:subagent>'), null);
+  assert.equal(f('before <cosmo:subagent agent="a">x</cosmo:subagent> after'), 'before  after');
+  assert.equal(f('a\n<cosmo:subagent agent="b">y</cosmo:subagent>\nb'), 'a\nb');
+});

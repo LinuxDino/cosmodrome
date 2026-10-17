@@ -32,6 +32,7 @@ export const BUILTIN_AGENTS = {
         '--allowedTools', 'Read,Grep,Glob,WebSearch,WebFetch',
         ...(s.resumeId ? ['--resume', s.resumeId] : s.continued ? ['--continue'] : []),
         ...(s.mode === 'auto' ? ['--permission-mode', 'acceptEdits'] : []),
+        ...(s.mcpConfig ? [`--mcp-config=${s.mcpConfig}`] : []), // "=" form: the option takes a list and would eat the next argument
         '--', prompt,
       ],
     },

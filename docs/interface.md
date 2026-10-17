@@ -56,6 +56,30 @@ When the interface starts, and after every `/cd`, the profile whose `workdir` co
 
 `/artifacts` lists them with stable numbers. Use `/show 2`, `/open 2`, `/zip 2`, or `/zip all`. Inside a git repo `.cosmo/` gets its own `.gitignore`, so nothing is committed by accident.
 
+## Local orchestrator (Ollama)
+
+With [Ollama](https://ollama.com) installed, `ollama` is one more agent (`@ollama`, also `@local`): it runs on your machine, needs no account and costs nothing.
+
+- `/router` turns router mode on: a local model reads each message and either answers it or hands parts to other agents (`<cosmo:subagent agent="codex">…</cosmo:subagent>`), then merges the results. `/router off` turns it off, `/router qwen3:8b` picks the model.
+- `/delegate <task>` does that once; `/council <question>` asks several agents in parallel and merges their answers.
+- The model is the best one you have installed (`ollama list`), or `COSMO_LOCAL_MODEL`. Small tool-calling models such as Qwen3 8B are enough, since the real work stays with the agents.
+- Subagents never get more rights than you: in ask mode they are read-only, whatever the plan says. One answer starts at most 4 subagents.
+- When an agent hits a usage limit, the message goes to the next installed agent of the same profile and the first one pauses for 10 minutes. `/usage` shows runs, cost, cooldowns and switches.
+
+## Shared rules, skills and MCP
+
+`/skills init` creates `rules.md`, a starter skill and `mcp.json` in the cosmodrome config folder; a repo can add its own in `<repo>/.cosmo/`. `/skills sync` (also done before each run) gives them to every installed agent:
+
+| Agent | Rules and skills | MCP servers |
+|---|---|---|
+| claude | own section in the profile's `CLAUDE.md` | `cosmodrome-mcp.json`, passed with `--mcp-config` |
+| codex | own section in `AGENTS.md` | - |
+| opencode | own section in `AGENTS.md` | `opencode.json` |
+| agy | skills folder | `mcp_config.json` |
+| copilot | own section in `instructions.md` | - |
+
+cosmo only edits its own marked section (`<!-- cosmodrome:start -->`) and never Claude's `.claude.json`; a config file it can't read is left alone. Rules from a repo's `.cosmo/` are instructions for your agents, so only use them in repos you trust.
+
 ## Modules
 
 Add commands and status items with plain JavaScript files in `~/.config/cosmodrome/modules/` (`.js` or `.mjs`, ESM):

@@ -20,7 +20,7 @@ import { which } from '../system.js';
 import { CosmoError, closest, failureHint } from '../ui.js';
 import { saveArtifact, artifactsRoot, listArtifacts } from '../artifacts.js';
 import { UsageTracker } from '../usage.js';
-import { parseSubagentCalls, runDelegation, runCouncil } from '../orchestrator.js';
+import { parseSubagentCalls, runDelegation, runCouncil, listOllamaModels, pickLocalModel, createSubagentTagFilter } from '../orchestrator.js';
 
 const VERSION = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 const HISTORY_MAX = 500;
@@ -695,6 +695,28 @@ export class App {
     };
   }
 
+  /**
+   * Model for the local Ollama agent: the one chosen with /router or COSMO_LOCAL_MODEL, else the
+   * best installed one (looked up once). Without this, runs used a fixed default that may not exist.
+   */
+  localModel(agent) {
+    if (agent?.name !== 'ollama') return this.state.localModel;
+    if (!this.state.localModel) {
+      this.state.localModel = pickLocalModel(listOllamaModels({ env: this.ctx.env }), this.config, this.ctx.env);
+    }
+    return this.state.localModel;
+  }
+
+  /**
+   * The mode a run actually gets. Requests come from model output (<cosmo:subagent mode=...>)
+   * too, so they can lower the mode but never raise it above what the user chose.
+   */
+  effectiveMode(requested) {
+    if (requested === 'ask') return 'ask';
+    if (requested === 'auto') return this.state.mode === 'auto' ? 'auto' : 'ask';
+    return this.state.mode;
+  }
+
   async sendPrompt(
     prompt,
     {
@@ -731,15 +753,16 @@ export class App {
     const bin = this.cli.requireBin(agent, this.ctx);
     const session = this.channels.session(ch.profile, agent.name);
     if (session.moved) this.print(t.dim(`  new conversation for ${tildify(this.state.cwd, this.ctx.paths.home)} (agents keep conversations per folder)`));
-    const runMode = modeOverride || this.state.mode;
-    const args = buildHeadless(agent, prompt, { ...session, mode: runMode, model: this.state.localModel });
+    const runMode = this.effectiveMode(modeOverride);
+    const plan = this.cli.plan(this.config, ch.profile, agent, this.cliCtx());
+    const args = buildHeadless(agent, prompt, { ...session, mode: runMode, model: this.localModel(agent), mcpConfig: plan.mcpConfig });
     if (!args) {
       throw new CosmoError(`${agent.label} has no one-shot mode configured.`, { hint: 'Use /native, or add "headless" to the agent in cosmo config edit.' });
     }
-    const plan = this.cli.plan(this.config, ch.profile, agent, this.cliCtx());
     if (agentOverride && !quietMeta) this.print(t.dim(`  asking @${agent.name} in #${ch.profile}`));
 
     let write = this.makeWriter();
+    const hideTags = createSubagentTagFilter();
     const startedAt = Date.now();
     const handle = runProcess({
       bin,
@@ -748,8 +771,10 @@ export class App {
       cwd: this.state.cwd,
       format: agent.headless?.stream || 'text',
       onText: (text, info) => {
+        const shown = hideTags(text);
+        if (shown == null) return;
         if (info?.block) write = this.makeWriter();
-        write(text);
+        write(shown);
       },
       onTool: (name, detail) => {
         if (this.state.running) {
@@ -843,7 +868,7 @@ export class App {
       });
       return {
         agent: picked.agent,
-        mode: c.mode || 'ask',
+        mode: this.effectiveMode(c.mode || 'ask'),
         prompt: c.prompt,
         status: 'running',
         action: 'starting…',
@@ -877,8 +902,8 @@ export class App {
           return { agent: sub.agent, code: 127, text: '', stderr: 'not installed' };
         }
         const bin = this.cli.requireBin(agent, this.ctx);
-        const args = buildHeadless(agent, sub.prompt, { continued: false, mode: sub.mode, model: this.state.localModel });
         const plan = this.cli.plan(this.config, ch.profile, agent, this.cliCtx());
+        const args = buildHeadless(agent, sub.prompt, { continued: false, mode: sub.mode, model: this.localModel(agent), mcpConfig: plan.mcpConfig });
         const t0 = Date.now();
         const handle = runProcess({
           bin,

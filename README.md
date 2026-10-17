@@ -4,7 +4,7 @@
 
 ```
   .-'''''-.
-.'    ✦    '.◉    cosmodrome v0.4.0
+.'    ✦    '.◉    cosmodrome v0.5.0
  '-._____.-'      ~/work/api
 / commands · # channel · @ other agent · ! shell · ? keys
 
@@ -45,6 +45,7 @@ Then install the agents you want (any subset):
 | OpenCode | `npm install -g opencode-ai` |
 | OpenAI Codex CLI | `npm install -g @openai/codex` |
 | Antigravity CLI (Google) | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` |
+| Ollama (local, optional) | `brew install ollama && ollama pull qwen3:8b` |
 
 You also need `git` ≥ 2.32, plus `gh` (GitHub CLI) for per-profile GitHub logins. `tmux` is optional and only needed for `/fleet`.
 
@@ -89,6 +90,11 @@ hello!                # chat with the current channel
 | `/init`, `/profile …`, `/status`, `/doctor`, `/agents` | Setup and checks |
 | `/shell` | Interactive shell with the profile identity |
 | `/modules` | Your custom commands |
+| `/router [on\|off\|model]` | Local Ollama model plans each message and hands parts to the right agents |
+| `/delegate <task>` · `/council <question>` | Split a task across agents · ask several agents in parallel and merge the answers |
+| `/usage` | Runs, cost, usage-limit cooldowns and automatic switches per agent |
+| `/skills`, `/mcp` | Shared rules, skills and MCP servers for all agents (`init`, `sync`) |
+| `/preview <file\|#n>` | Preview card for a file or artifact |
 | `/help`, `/clear`, `/exit` | |
 
 Full guide: [docs/interface.md](docs/interface.md).

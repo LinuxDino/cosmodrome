@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+- New: local orchestrator with Ollama. `@ollama` runs a local model; `/router` lets it plan each message and hand parts to other agents; `/delegate` and `/council` split a task or ask several agents in parallel and merge the answers.
+- New: automatic switch to another installed agent when one hits a usage limit, with a cooldown; `/usage` shows runs, cost, cooldowns and switches.
+- New: shared rules, skills and MCP servers for all agents (`/skills`, `/mcp`), a live tool line under the spinner, clickable file links and `/preview` cards.
+- Subagents never get more rights than you (ask mode stays read-only) and one answer starts at most 4.
+- Agent sync only edits cosmo's own section of `CLAUDE.md`/`AGENTS.md`, never touches Claude's `.claude.json` (MCP goes through `--mcp-config`), leaves unreadable config files alone, and keeps skill names to safe folder names.
+- Fixed: a normal answer that mentions rate limits no longer counts as a usage limit; `@ollama` uses an installed model instead of a fixed default; plan tags no longer show in answers.
+- Restored the 0.4.0 changes that the orchestrator merge had overwritten.
+
 ## 0.4.0
 - `/channels` draws each profile as a small orbit: the agents are its satellites, the current channel is the bright one.
 - cosmo starts on a clean window at the top; what was on screen moves into the scrollback. `COSMO_NO_CLEAR=1` keeps the old behaviour.

@@ -17,6 +17,10 @@ src/agents.js           built-in agents: install hint, isolation env, login args
 src/env.js              per-profile environment plan (scrubbing, gitconfig, agent dirs) - pure, tested
 src/config.js paths.js  config file + XDG paths
 src/artifacts.js zip.js artifact folders, code-block extraction, zip writer
+src/orchestrator.js     local Ollama router: plan, <cosmo:subagent> parsing, /delegate, /council
+src/usage.js            per-agent usage, cooldowns and automatic switch on usage limits
+src/skills.js           shared rules, skills and MCP; sync into each agent's folder (managed blocks only)
+src/context.js          the cooperation briefing given to agents and the router
 src/tui/app.js          interactive interface (input, rendering, dispatch, agent runs)
 src/tui/commands.js     built-in slash commands
 src/tui/channels.js     profile/agent channels, sessions, auto switch

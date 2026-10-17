@@ -97,7 +97,7 @@ function plan(config, profileName, agent, ctx) {
   });
   applyPlan(p);
   if (agent && p.agentDir) {
-    syncAgentCustomizations({ agent, agentDir: p.agentDir, paths: ctx.paths, cwd: ctx.cwd });
+    p.mcpConfig = syncAgentCustomizations({ agent, agentDir: p.agentDir, paths: ctx.paths, cwd: ctx.cwd }).mcpConfig || null;
   }
   return p;
 }
@@ -133,7 +133,9 @@ async function launchCmd(args, ctx) {
   const bin = requireBin(agent, ctx);
   const p = plan(config, name, agent, ctx);
   if (!opts.quiet) banner(agent.label, config, name, ctx, cwd, reason);
-  const agentArgs = [...(agent.args || []), ...(profile.agents?.[agent.name]?.args || []), ...opts.rest];
+  // "=" form: --mcp-config takes a list and would otherwise swallow a prompt that follows.
+  const mcpArgs = p.mcpConfig && agent.name === 'claude' ? [`--mcp-config=${p.mcpConfig}`] : [];
+  const agentArgs = [...mcpArgs, ...(agent.args || []), ...(profile.agents?.[agent.name]?.args || []), ...opts.rest];
   return runInteractive(bin, agentArgs, { env: p.env, cwd });
 }
 
