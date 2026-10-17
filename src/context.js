@@ -1,4 +1,5 @@
 import { loadRules, loadSkills, loadMcpServers } from './skills.js';
+import { agentProfile, REVIEW_GATES } from './governance.js';
 
 export const AGENT_ROLES = {
   claude: 'Deep codebase reasoning, multi-file refactoring, architecture & web search',
@@ -27,7 +28,8 @@ export function buildCosmoContext({
     .filter((a) => a !== agent)
     .map((a) => {
       const throttled = throttledAgents.includes(a);
-      return `- @${a}: ${AGENT_ROLES[a] || 'Coding agent'}${throttled ? ' (currently on usage cooldown — avoid if possible)' : ' (ready)'}`;
+      const profile = agentProfile(a);
+      return `- @${a}: ${AGENT_ROLES[a] || 'Coding agent'} · ${profile.title} · ${profile.strengths}${throttled ? ' (currently on usage cooldown — avoid if possible)' : ' (ready)'}`;
     });
 
   const rules = paths ? loadRules(paths, cwd) : [];
@@ -52,6 +54,12 @@ export function buildCosmoContext({
       '- Cosmodrome will run those subagents in parallel (auto-switching providers if one hits a usage limit) and return their results to you.',
     );
   }
+  lines.push(
+    'Project governance:',
+    '- Work in a loop: plan, execute, verify, review, then continue until acceptance checks pass.',
+    '- Do not claim completion from text alone; report changed files, checks, risks and remaining work.',
+    `- Review gates: ${REVIEW_GATES.map((gate) => `${gate.label} (@${gate.owner})`).join('; ')}.`,
+  );
 
   if (skills.length) {
     lines.push(

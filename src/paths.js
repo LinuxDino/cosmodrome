@@ -52,3 +52,7 @@ export function profileDir(paths, name) {
 export function agentDir(paths, profileName, agentName) {
   return path.join(paths.stationDir, profileName, 'agents', agentName);
 }
+
+export function tasksDir(paths) {
+  return path.join(path.dirname(paths.stationDir), 'tasks');
+}

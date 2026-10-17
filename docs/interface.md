@@ -60,12 +60,14 @@ When the interface starts, and after every `/cd`, the profile whose `workdir` co
 
 With [Ollama](https://ollama.com) installed, `ollama` is one more agent (`@ollama`, also `@local`): it runs on your machine, needs no account and costs nothing.
 
-- `/router` configures the local router: a local model makes a short delegation decision and hands complex work to advisor agents (`<cosmo:subagent agent="codex">…</cosmo:subagent>`). Router mode starts enabled, advisors run in parallel, and Claude finalizes findings when available. `/router off` sends messages directly to the active channel; `/router qwen3:8b` selects a model.
+- `/router` configures the local router: a local model makes a short delegation decision for every message and hands work to the best executor (`<cosmo:subagent agent="codex" mode="auto">…</cosmo:subagent>`). Router mode and auto mode start enabled, specialists run in parallel when useful, and the executor reports progress. `/router off` sends messages directly to the active channel; `/router qwen3:8b` selects a model.
 - `/delegate <task>` does that once; `/council <question>` asks several agents in parallel and merges their answers.
 - The model is the best one you have installed (`ollama list`), or `COSMO_LOCAL_MODEL`. Small tool-calling models such as Qwen3 8B are enough, since the real work stays with the agents.
-- The router is intentionally concise and skips planning for simple requests. Subagents never get more rights than you: in ask mode they are read-only, whatever the plan says. One answer starts at most 4 subagents.
+- The router is intentionally concise and always returns a routing decision. Subagents never get more rights than the current mode: ask mode is read-only, while auto mode permits edits. One answer starts at most 4 subagents.
 - Automatic model selection prefers `qwen3.5`, `qwen3`, `ministral-3`, `gemma4`, then `qwen2.5-coder`. Set `COSMO_LOCAL_MODEL` to override it.
-- When an agent hits a usage limit, the message goes to the next installed agent of the same profile and the first one pauses for 10 minutes. `/usage` shows runs, cost, cooldowns and switches.
+- When an agent hits a usage limit, the message goes to the next installed agent of the same profile and the first one pauses for 10 minutes. If all providers are limited, Cosmodrome waits for the earliest persisted cooldown and retries automatically. `/usage` shows runs, cost, cooldowns and switches.
+- Every natural-language task is persisted outside the repository. `/tasks` shows unfinished work, `/resume <task-id>` continues it after a restart, and `/cancel [task-id]` stops a task. Cosmo stores task metadata and event history, never credentials.
+- `/roster` shows the installed agents' roles and review ownership. `/review` runs a read-only project health review. `/loop <goal>` instructs the supervisor to plan, execute, verify, review, and continue until acceptance checks pass.
 
 ## Shared rules, skills and MCP
 

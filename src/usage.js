@@ -86,6 +86,16 @@ export class UsageTracker {
     return Math.ceil((e.throttledUntil - now) / 1000);
   }
 
+  nextCooldownMs(profile, agents = DEFAULT_PRIORITY, now = Date.now()) {
+    const waits = agents
+      .map((agent) => {
+        const e = this.stats[this.key(profile, agent)];
+        return e && e.throttledUntil > now ? e.throttledUntil - now : 0;
+      })
+      .filter(Boolean);
+    return waits.length ? Math.min(...waits) : 0;
+  }
+
   record(profile, agent, res = {}, durationMs = 0) {
     const e = this.entry(profile, agent);
     const now = Date.now();

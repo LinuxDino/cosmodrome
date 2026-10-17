@@ -15,13 +15,14 @@ import { runProcess } from './runner.js';
 import { loadModules } from './modules.js';
 import { loadConfig, emptyConfig } from '../config.js';
 import { getAgent, buildHeadless, agentNames, canonicalAgentName, agentModel } from '../agents.js';
-import { tildify } from '../paths.js';
+import { tildify, tasksDir } from '../paths.js';
 import { which } from '../system.js';
 import { CosmoError, closest, failureHint } from '../ui.js';
 import { saveArtifact, artifactsRoot, listArtifacts } from '../artifacts.js';
 import { UsageTracker } from '../usage.js';
 import { parseSubagentCalls, runDelegation, runCouncil, listOllamaModels, pickLocalModel, createSubagentTagFilter } from '../orchestrator.js';
 import { enrichPrompt } from '../context.js';
+import { TaskStore } from '../tasks.js';
 
 const VERSION = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 const HISTORY_MAX = 500;
@@ -42,12 +43,14 @@ export class App {
     this.exited = false;
     this.historyFile = path.join(path.dirname(ctx.paths.stationDir), 'history.txt');
     this.usage = new UsageTracker(path.join(path.dirname(ctx.paths.stationDir), 'usage.json'));
+    this.tasks = new TaskStore(tasksDir(ctx.paths));
+    this.recoveredTasks = this.tasks.recover();
     this.state = {
       input: [],
       cursor: 0,
       menuIndex: 0,
       menuDismissed: false,
-      mode: 'ask',
+      mode: 'auto',
       router: true,
       localModel: ctx.env.COSMO_LOCAL_MODEL || null,
       history: this.loadHistory(),
@@ -60,6 +63,7 @@ export class App {
       pasting: false,
       cwd: ctx.cwd,
       spinnerFrame: 0,
+      activeTaskId: null,
     };
     this.config = loadConfig(ctx.paths) || emptyConfig();
     this.channels = new ChannelManager(this);
@@ -189,6 +193,13 @@ export class App {
     if (this.ctx.env.COSMO_NO_CLEAR !== '1') process.stdout.write('\n'.repeat(this.screen.rows) + '\x1b[H');
     this.print(header({ version: VERSION, cwd: tildify(this.state.cwd, this.ctx.paths.home), cols: this.screen.cols, t, glyphs: this.glyphs }));
     for (const e of this.modules.errors) this.print(`  ${t.red('✗')} module ${e.name}: ${t.dim(e.message)}`);
+    if (this.recoveredTasks.length) {
+      this.print([
+        `${t.yellow('↻')} Recovered ${this.recoveredTasks.length} unfinished task${this.recoveredTasks.length === 1 ? '' : 's'}.`,
+        ...this.recoveredTasks.slice(0, 5).map((task) => `  ${t.dim(task.id)} ${task.prompt.slice(0, 80)}`),
+        t.dim('Use /tasks to inspect them and /resume <id> to continue.'),
+      ]);
+    }
     if (!Object.keys(this.config.profiles).length) {
       this.print(`  ${t.yellow('!')} No profiles yet - type ${t.bold('/init')} to set up work and private profiles.`);
     } else {
@@ -621,7 +632,7 @@ export class App {
     if (text.startsWith('!')) return this.runShell(text.slice(1).trim());
     if ((m = text.match(/^#(\S+)\s*([\s\S]*)$/))) {
       this.channels.switchTo(m[1]);
-      if (m[2].trim()) return this.sendPrompt(m[2].trim(), { echo: false });
+      if (m[2].trim()) return this.startTaskAndSend(m[2].trim(), { echo: false });
       return;
     }
     if ((m = text.match(/^@(\S+)\s*([\s\S]*)$/))) {
@@ -631,12 +642,23 @@ export class App {
         throw new CosmoError(`Unknown agent "${m[1]}".`, { hint: guess ? `Did you mean @${guess}?` : `Agents: ${agentNames(this.config).join(', ')}` });
       }
       if (!m[2].trim()) throw new CosmoError(`Type a message after @${agent}.`, { hint: `e.g. @${agent} review my last commit` });
-      return this.sendPrompt(m[2].trim(), { agent, echo: false });
+      return this.startTaskAndSend(m[2].trim(), { agent, echo: false });
     }
     if (this.state.router) {
-      return runDelegation(text, this);
+      return this.startTask(text, () => runDelegation(text, this, this.state.activeTaskId));
     }
-    return this.sendPrompt(text, { echo: false });
+    return this.startTaskAndSend(text, { echo: false });
+  }
+
+  startTask(prompt, run) {
+    const ch = this.requireChannel();
+    const task = this.tasks.create({ prompt, cwd: this.state.cwd, profile: ch.profile, mode: this.state.mode });
+    this.state.activeTaskId = task.id;
+    return run();
+  }
+
+  startTaskAndSend(prompt, options = {}) {
+    return this.startTask(prompt, () => this.sendPrompt(prompt, { ...options, taskId: this.state.activeTaskId }));
   }
 
   // ------------------------------------------------------------ running things
@@ -732,9 +754,11 @@ export class App {
       enrich = true,
       suppressOutput = false,
       triedAgents = new Set(),
+      taskId = this.state.activeTaskId,
     } = {},
   ) {
     const ch = this.requireChannel();
+    if (taskId) this.tasks.update(taskId, { status: 'executing', phase: 'agent', assignedAgent: agentOverride || ch.agent }, 'agent.started');
     if (echo) this.print(`${t.gray('> ')}${t.gray(prompt)}`);
     let agentName = agentOverride ? canonicalAgentName(agentOverride, this.config) : ch.agent;
 
@@ -834,11 +858,36 @@ export class App {
           enrich,
           suppressOutput,
           triedAgents,
+          taskId,
+        });
+      }
+      const waitMs = this.usage.nextCooldownMs(ch.profile, agentNames(this.config));
+      if (waitMs > 0) {
+        const waitSecs = Math.max(1, Math.ceil(waitMs / 1000));
+        this.print(`  ${t.yellow('⏱')} ${t.dim(`all providers are on cooldown — retrying in ${waitSecs}s`)}`);
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+        return this.sendPrompt(prompt, {
+          agent: agentName,
+          mode: modeOverride,
+          saveAs,
+          echo: false,
+          quietMeta,
+          skipSubagentSpawn,
+          enrich,
+          suppressOutput,
+          triedAgents: new Set(),
         });
       }
     }
 
     recordRun(session, res);
+    if (taskId) {
+      this.tasks.event(taskId, res.code === 0 ? 'agent.completed' : 'agent.failed', {
+        agent: agent.name,
+        code: res.code,
+        summary: res.text.slice(-1000),
+      });
+    }
     const secs = Math.round(durationMs / 1000);
     const meta = [agent.name];
     if (toolCount > 0) meta.push(`${toolCount} tool${toolCount === 1 ? '' : 's'}`);
@@ -863,11 +912,19 @@ export class App {
     if (!skipSubagentSpawn && !res.cancelled && res.text) {
       const subCalls = parseSubagentCalls(res.text);
       if (subCalls.length) {
-        return this.executeSubagents(subCalls, { parentPrompt: prompt, synthesizeWith: agent.name, saveAs });
+        return this.executeSubagents(subCalls, { parentPrompt: prompt, synthesizeWith: agent.name, saveAs, taskId });
       }
     }
 
     this.lastResponse = { text: res.text, prompt, channel: `${ch.profile}/${agent.name}`, title: saveAs?.title };
+    if (taskId) {
+      this.tasks.update(taskId, {
+        status: res.code === 0 ? 'completed' : 'failed',
+        phase: res.code === 0 ? 'completed' : 'failed',
+        lastError: res.code ? `Agent exited with code ${res.code}.` : null,
+      }, res.code === 0 ? 'task.completed' : 'task.failed');
+      this.state.activeTaskId = null;
+    }
     if (saveAs && res.text.trim() && !res.cancelled) this.saveResponse({ ...this.lastResponse, ...saveAs });
     return res;
   }
@@ -875,7 +932,7 @@ export class App {
   /**
    * Run one or more subagents concurrently (with live Subagent Tree HUD and automatic usage failover).
    */
-  async executeSubagents(calls, { parentPrompt = '', synthesizeWith = null, council = false, saveAs = null } = {}) {
+  async executeSubagents(calls, { parentPrompt = '', synthesizeWith = null, council = false, saveAs = null, taskId = this.state.activeTaskId } = {}) {
     const ch = this.requireChannel();
     const activeHandles = new Set();
     const subStates = calls.map((c) => {
@@ -1000,14 +1057,24 @@ export class App {
         `Be concise. Include changed files or exact next steps and tests. Do not mention internal routing.\n\n${combinedText.slice(0, 30000)}`;
       return this.sendPrompt(synthPrompt, {
         agent: synthesizeWith,
-        mode: council ? 'ask' : this.state.mode,
+        mode: this.state.mode,
         echo: false,
         skipSubagentSpawn: true,
         saveAs,
+        taskId,
       });
     }
 
     this.lastResponse = { text: combinedText, prompt: parentPrompt, channel: `${ch.profile}/multi`, title: saveAs?.title };
+    if (taskId) {
+      const succeeded = results.some((result) => result.code === 0);
+      this.tasks.update(
+        taskId,
+        { status: succeeded ? 'completed' : 'failed', phase: succeeded ? 'completed' : 'failed', lastError: succeeded ? null : 'All delegated agents failed.' },
+        succeeded ? 'task.completed' : 'task.failed',
+      );
+      this.state.activeTaskId = null;
+    }
     if (saveAs && combinedText) this.saveResponse({ ...this.lastResponse, ...saveAs });
     return { code: 0, text: combinedText, results };
   }

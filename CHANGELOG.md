@@ -1,9 +1,15 @@
 # Changelog
 
+## 0.7.0
+- New: durable task journal with task IDs, event history, checkpoints, restart recovery, and `/tasks`, `/resume`, and `/cancel` controls.
+- New: governance roster and review loops. `/roster` shows agent responsibilities, `/review` audits project health read-only, and `/loop` requires plan, execution, verification, review, and acceptance checks.
+- New: automatic routing asks Ollama to choose an executor for every normal message; routed work starts in auto mode, council synthesis can execute, and all-provider cooldowns retry automatically.
+- New: shorter onboarding README focused on installation, safety, profiles, workflows, and documentation.
+
 ## 0.6.0
 - New: router mode starts enabled so normal messages automatically flow through local orchestration without requiring a mode switch.
 - New: automatic local model selection prefers Qwen3.5, Qwen3, Ministral 3, Gemma 4, and Qwen2.5-Coder, with `COSMO_LOCAL_MODEL` and `/router <model>` overrides.
-- Improved: routing is concise and skips the local planning round for simple requests; advisor output is bounded and Claude is the preferred finalizer.
+- Improved: routing is concise; advisor output is bounded and Claude is the preferred finalizer when available.
 - Improved: all headless agent prompts receive the Cosmodrome context and skills-first instruction, including delegated Claude work.
 - Fixed: Copilot headless runs explicitly request text output so edits no longer finish with an empty response.
 - Fixed: project-local skills and `COSMO.md` are loaded from the directory passed to `--cd`.

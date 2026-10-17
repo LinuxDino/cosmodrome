@@ -1,156 +1,142 @@
-# ✦ cosmodrome
+# cosmodrome
 
-**One launch pad for all your AI coding agents.** Type `cosmo` and you get a Claude Code–style interface with slash commands, channels for every profile and agent, web research, and artifacts you can bundle into a zip. Work and private stay apart: each profile has its own GitHub account, git identity, and agent logins.
+[![npm](https://img.shields.io/npm/v/cosmodrome)](https://www.npmjs.com/package/cosmodrome)
+[![CI](https://github.com/LinuxDino/cosmodrome/actions/workflows/ci.yml/badge.svg)](https://github.com/LinuxDino/cosmodrome/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/LinuxDino/cosmodrome)](LICENSE)
 
-```
-  .-'''''-.
-.'    ✦    '.◉    cosmodrome v0.6.0
- '-._____.-'      ~/work/api
-/ commands · # channel · @ other agent · ! shell · ? keys
+**One control room for your AI coding agents.**
 
-↪ #work/claude  (folder ~/work)
-> /research how do npm trusted publishers work
-⏺ WebSearch(npm trusted publishing)
-⏺ npm trusted publishing
-  • Short-lived OIDC tokens replace long-lived NPM_TOKEN secrets …
-  ⎿ claude · 41s · $0.084
-✓ Saved artifact #3 (1 file) ~/work/api/.cosmo/artifacts/…-how-do-npm-trusted-publishers-work
-╭──────────────────────────────────────────────────────────────╮
-│ >                                                            │
-╰──────────────────────────────────────────────────────────────╯
-  #work/claude · ask mode · GitHub dino-ce · ~/work/api · ⎇ main
-```
+Cosmodrome is a zero-dependency Node.js CLI for running Claude Code, GitHub Copilot CLI, Codex, OpenCode, Antigravity, and Ollama through one terminal interface. It keeps work and private profiles separate, routes tasks automatically, delegates useful work, and preserves task state across restarts.
 
-## Why
+## What it does
 
-- **Every login stays official.** cosmodrome never reads or forwards tokens. It starts the vendors' own CLIs (Claude Code, GitHub Copilot CLI, OpenCode, Codex, Antigravity) and points each one at a per-profile folder. That keeps you inside each provider's terms. See [docs/agents.md](docs/agents.md).
-- **Accounts never mix.** `#work/claude` and `#private/claude` are different logins, different GitHub accounts, and different git identities. Folders auto-select the right profile.
-- **One interface, many agents.** Switch with `#private/copilot`, ask a second agent once with `@codex …`, or open any agent's full native UI with `/native`.
+- **One interface:** send natural-language work to the best available agent.
+- **Separate accounts:** each profile has its own GitHub, git, and agent configuration.
+- **Autonomous workflows:** Ollama can route tasks, delegate specialists, and supervise plan → execute → verify → review loops.
+- **Durable work:** tasks, events, checkpoints, and unfinished work survive a Cosmo restart.
+- **Safe modes:** ask mode is read-only; auto mode allows the selected agent to edit the current folder.
+- **Artifacts:** save research, answers, and generated files as folders or zip archives.
 
 ## Install
 
+Requirements:
+
+- macOS or Linux (Windows via WSL)
+- Node.js >= 18.17
+- `git`
+- `gh` (GitHub CLI) for GitHub profile authentication
+
 ```bash
-npm install -g cosmodrome      # macOS + Linux (Windows: WSL), Node >= 18.17
-cosmo doctor                   # what's installed, what's missing
+npm install -g cosmodrome
+cosmo doctor
 ```
 
-Update with `npm install -g cosmodrome@latest`. The same releases are also on GitHub Packages as `@linuxdino/cosmodrome` (see [docs/github-setup.md](docs/github-setup.md#github-packages)).
-
-Then install the agents you want (any subset):
+Install any agent you want to use:
 
 | Agent | Install |
 |---|---|
 | Claude Code | `npm install -g @anthropic-ai/claude-code` |
-| GitHub Copilot CLI | `npm install -g @github/copilot` (needs Node 22+) |
+| GitHub Copilot CLI | `npm install -g @github/copilot` |
 | OpenCode | `npm install -g opencode-ai` |
 | OpenAI Codex CLI | `npm install -g @openai/codex` |
-| Antigravity CLI (Google) | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` |
-| Ollama (local, optional) | `brew install ollama && ollama pull qwen3:8b` |
-
-You also need `git` ≥ 2.32, plus `gh` (GitHub CLI) for per-profile GitHub logins. `tmux` is optional and only needed for `/fleet`.
+| Antigravity CLI | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` |
+| Ollama (optional, local) | `brew install ollama && ollama pull qwen3:8b` |
 
 ## Quick start
 
 ```bash
-cosmo                 # opens the interface
-/init                 # create profiles, e.g. "work" (folder ~/work) and "private"
-/login                # GitHub login for the current profile (via gh)
-/login claude         # sign in to an agent - inside its own CLI
-hello!                # chat with the current channel
+cosmo
 ```
 
-## The interface
+Inside the interface:
 
-| You type | What happens |
-|---|---|
-| `text` | Sent to the current channel's agent; the conversation continues across messages |
-| `/command` | Slash commands. Type `/` for the menu, Tab to complete |
-| `#work/copilot` | Switch channel (add text to send right away: `#private/agy hi`) |
-| `@codex review this` | Ask another agent of the same profile once |
-| `!git status` | Shell command with the profile's GitHub + git identity |
+```text
+/init                         Create a profile
+/login                        Sign in to GitHub for the current profile
+/login claude                 Sign in through the agent's official CLI
+Implement the next feature    Route and execute a task automatically
+/tasks                        List saved and unfinished work
+/review                       Review project health and agent ownership
+/loop ship the feature        Run a verified implementation loop
+```
 
-**Keys:** Enter sends · Tab completes · ↑↓ history/menu · Shift+Tab toggles ask/auto mode · Ctrl+O next agent · Esc interrupts · Ctrl+L clears · Alt+Enter or Ctrl+J new line · Ctrl+Z background · Ctrl+C twice exits.
+Useful shortcuts:
 
-**Modes:** *ask* (default) lets the agent read files and search the web, with no edits. *auto* lets it edit files in the current folder. For anything bigger, `/native` opens the agent's full interface and brings you back here when you exit.
+- `#work/claude` — switch profile and agent
+- `@codex review this` — ask one agent directly
+- `/mode ask` — read-only execution
+- `/mode auto` — allow edits
+- `/resume <task-id>` — continue work after a restart
+- `Esc` — interrupt the active run
 
-### Slash commands
+See the complete command and keyboard reference in [docs/interface.md](docs/interface.md).
 
-| Command | Purpose |
-|---|---|
-| `/channel`, `/channels` | Switch / list channels (profile + agent) |
-| `/research <topic>` | Web research → markdown report, saved as an artifact |
-| `/artifact <what>` | Agent creates complete files → saved as an artifact |
-| `/save [title]` | Save the last answer as an artifact |
-| `/artifacts`, `/show n`, `/open n` | Browse artifacts |
-| `/zip [n\|all]` | Bundle artifacts into a `.zip` |
-| `/native` | Open the agent's own interface |
-| `/fleet a b c` | Several agents side by side in tmux |
-| `/login [gh\|agent]` | Official sign-in for this profile |
-| `/mode`, `/new`, `/cd` | Ask/auto mode · fresh conversation · change folder (auto-switches channel) |
-| `/init`, `/profile …`, `/status`, `/doctor`, `/agents` | Setup and checks |
-| `/shell` | Interactive shell with the profile identity |
-| `/modules` | Your custom commands |
-| `/model [agent] [model]` | Model per agent for this profile (`/model claude opus`, `/model copilot auto`) |
-| `/project [init]` | This project's `COSMO.md` |
-| `/router [on\|off\|model]` | Configure the local router; it is enabled by default and Claude finalizes advisor findings when available |
-| `/delegate <task>` · `/council <question>` | Split a task across agents · ask several agents in parallel and merge the answers |
-| `/usage` | Runs, cost, usage-limit cooldowns and automatic switches per agent |
-| `/skills`, `/mcp` | Shared rules, skills and MCP servers for all agents (`init`, `sync`) |
-| `/help`, `/clear`, `/exit` | |
+## Profiles and safety
 
-Full guide: [docs/interface.md](docs/interface.md).
+Cosmodrome starts each vendor's official CLI and gives it an isolated per-profile directory. It does not implement provider login flows or copy login tokens between agents.
 
-The interface is designed for one-step operation: write the task, and the local router
-selects the appropriate agents, runs useful research in parallel, and hands the findings
-to Claude or the best available finalizer. The router prefers `qwen3.5`, then `qwen3`,
-`ministral-3`, `gemma4`, and `qwen2.5-coder`; set `COSMO_LOCAL_MODEL` or use
-`/router <model>` when you need a specific local model.
+Profiles isolate:
 
-### Artifacts
+- GitHub CLI configuration and git identity
+- Claude Code, Copilot, Codex, and OpenCode state
+- Antigravity's private home directory
+- task history and provider usage state
 
-Answers from `/artifact`, `/research` or `/save` become folders. Each one holds the full answer plus every code block as a real file (```` ```README.md ```` → `README.md`). Inside a git repo they go to `.cosmo/artifacts/` (git-ignored automatically); elsewhere they go to the cosmodrome data folder. `/zip all` packs everything into one zip.
-
-### COSMO.md
-
-Put a `COSMO.md` in a project's root (`/project init` creates one): rules, context and "which agent for what". Every agent gets it before each run - Claude, Copilot, agy, Codex, OpenCode and the local router - in addition to the files each one reads itself (`CLAUDE.md`, `AGENTS.md`). This repo has [its own](COSMO.md).
-
-### Modules
-
-Drop a `.mjs` file into `~/.config/cosmodrome/modules/` to add your own slash commands and status items. See [examples/modules/standup.mjs](examples/modules/standup.mjs) and [docs/interface.md#modules](docs/interface.md#modules).
-
-## Command line (scripts, quick launches)
+The active profile is selected from the current project folder when possible. Review the exact environment plan with:
 
 ```bash
-cosmo work claude --resume       # native Claude Code as "work" (args go to the agent)
-cosmo fleet work claude copilot  # tmux panes
-cosmo login private agy          # sign in to Antigravity as "private"
-cosmo status                     # who is signed in where
-eval "$(cosmo env work)"         # this shell becomes "work"
-cosmo profile add work --agent claude --git-email you@company.com --workdir ~/work
+cosmo status
+cosmo env work claude
 ```
 
-## How isolation works
+Use **ask** mode for inspection and advice. Use **auto** mode when an agent should edit files. Agents never receive more permission than the selected mode; use `/native` when you need the vendor's complete interactive permission flow.
 
-| Part | Per-profile mechanism |
-|---|---|
-| GitHub (gh) | `GH_CONFIG_DIR` |
-| git identity + HTTPS auth | `GIT_CONFIG_GLOBAL` → generated file that includes your `~/.gitconfig`, then sets user + gh credential helper |
-| Claude Code | `CLAUDE_CONFIG_DIR` |
-| Copilot CLI | `COPILOT_HOME` |
-| OpenCode | `XDG_CONFIG_HOME` / `XDG_DATA_HOME` / `XDG_STATE_HOME` |
-| Codex | `CODEX_HOME` |
-| Antigravity | private `HOME` (it has no config-dir option) |
+Read the provider-specific login and permission notes in [docs/agents.md](docs/agents.md).
 
-Tokens exported in your shell (`GH_TOKEN`, `ANTHROPIC_API_KEY`, …) are removed before any agent starts, unless a profile lists them in `passthroughEnv`.
+## Workflows
 
-> **macOS note:** some CLIs keep their login in the macOS Keychain. Recent Claude Code versions (about 2.1.121 and later) keep one Keychain entry per profile folder; older ones share a single entry, and agy always uses the shared Keychain. `cosmo doctor` checks this for you. After your first logins, confirm the account per profile (`/status` inside Claude Code, the header in agy).
+Ollama is optional. When available, it acts as a local supervisor:
 
-## Docs
+1. Routes the task to the most suitable installed agent.
+2. Delegates research, implementation, testing, or review when useful.
+3. Tracks progress and provider limits.
+4. Retries or switches providers when possible.
+5. Returns a concise result with changed files and checks.
 
-- [docs/interface.md](docs/interface.md): keys, channels, modes, artifacts, modules API
-- [docs/agents.md](docs/agents.md): every agent, how it logs in, provider rules, known issues
-- [docs/github-setup.md](docs/github-setup.md): two GitHub accounts, git auth, and publishing this project
-- [SPEC.md](SPEC.md): one-page spec · [AGENTS.md](AGENTS.md): notes for AI agents working on this repo
+Durable task data is stored outside the repository under Cosmodrome's data directory. It contains task metadata and event history, not credentials.
+
+## Project customization
+
+- `COSMO.md` — project instructions shared with every agent.
+- `.cosmo/` — project-local rules, skills, MCP configuration, and artifacts.
+- `~/.config/cosmodrome/modules/` — optional JavaScript modules for custom commands and status items.
+
+Start project guidance with:
+
+```text
+/project init
+/skills init
+```
+
+See [docs/interface.md](docs/interface.md) and [examples/modules/standup.mjs](examples/modules/standup.mjs).
+
+## Documentation
+
+- [Interface guide](docs/interface.md)
+- [Agent setup and provider notes](docs/agents.md)
+- [GitHub profiles and publishing](docs/github-setup.md)
+- [Project specification](SPEC.md)
+- [Changelog](CHANGELOG.md)
+
+## Development
+
+```bash
+git clone https://github.com/LinuxDino/cosmodrome.git
+cd cosmodrome
+npm test
+```
+
+Cosmodrome supports Node.js >= 18.17, macOS, and Linux. Runtime dependencies are intentionally kept at zero.
 
 ## License
 

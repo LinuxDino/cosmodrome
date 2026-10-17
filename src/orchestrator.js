@@ -1,5 +1,4 @@
 import { capture, which } from './system.js';
-import { AGENT_ROLES } from './context.js';
 import { DEFAULT_PRIORITY } from './usage.js';
 
 const PREFERRED_LOCAL_MODELS = [
@@ -48,10 +47,6 @@ export function pickLocalModel(installedModels = [], config = {}, env = process.
 
 /** Most subagents one answer may start; the tags can also come from text an agent merely read. */
 export const MAX_SUBAGENTS = 4;
-
-function likelyNeedsAdvisors(prompt) {
-  return /\b(review|audit|research|compare|architecture|design|security|investigate|analy[sz]e|multiple|repo|codebase|workflow|integration)\b/i.test(String(prompt));
-}
 
 /**
  * Parse `<cosmo:subagent agent="claude" mode="ask">prompt</cosmo:subagent>` blocks from AI output.
@@ -173,7 +168,7 @@ export function routePromptToAgent(prompt, installedAgents = [], currentProfile 
  *    execute subagents with live HUD tracking and automatic usage-limit failover.
  * 3. Synthesize the results into a clean final response.
  */
-export async function runDelegation(prompt, app) {
+export async function runDelegation(prompt, app, taskId = app.state.activeTaskId) {
   const ch = app.requireChannel();
   const { t } = app;
   const installed = DEFAULT_PRIORITY.filter((a) => app.channels.installed(a));
@@ -182,12 +177,13 @@ export async function runDelegation(prompt, app) {
   app.print(`${t.magenta('✦')} ${t.bold('Mission Control')} ${t.dim(`· analyzing task across ${installed.length} installed agent(s)`)}`);
 
   let calls = [];
-  if (installed.includes('ollama') && likelyNeedsAdvisors(prompt)) {
+  if (installed.includes('ollama')) {
     const specialists = installed.filter((a) => a !== 'ollama').map((a) => `@${a}`).join(', ') || 'none';
     const plannerPrompt =
-      `You are Cosmodrome's fast router. Return only delegation tags or the word DIRECT. ` +
-      `Do not explain, summarize, or answer the task. Emit at most 3 concise tags using available specialists: ${specialists}. ` +
-      `Use mode="ask" for advisor work. Delegate only when specialist input materially improves the result.\n\n` +
+      `You are Cosmodrome's task router and monitor. Return only delegation tags or the word DIRECT. ` +
+      `Do not explain, summarize, plan, or answer the task. Emit at most 3 concise tags using available specialists: ${specialists}. ` +
+      `Delegate implementation, fixes, file changes, tests, and other execution work with mode="${app.state.mode}". ` +
+      `Use mode="ask" only for pure research or advice. If one capable specialist can do the work, emit one tag rather than DIRECT.\n\n` +
       `Available agents: ${installed.join(', ')}\n` +
       `On cooldown: ${throttled.join(', ') || 'none'}\n` +
       `Task: ${prompt}`;
@@ -199,6 +195,7 @@ export async function runDelegation(prompt, app) {
       skipSubagentSpawn: true,
       enrich: false,
       suppressOutput: true,
+      taskId: null,
     });
     calls = parseSubagentCalls(planRes.text);
   }
@@ -208,12 +205,14 @@ export async function runDelegation(prompt, app) {
     calls = [{ agent: routed.agent, mode: app.state.mode, prompt }];
   }
 
-  const finalizer = installed.includes('claude') ? 'claude' : installed.includes('ollama') ? 'ollama' : null;
-  return app.executeSubagents(calls, { parentPrompt: prompt, synthesizeWith: finalizer });
+  const needsFinalizer = calls.length > 1 || calls[0].mode === 'ask' || calls[0].agent === 'ollama';
+  const finalizer = needsFinalizer && (installed.includes('claude') ? 'claude' : installed.includes('ollama') ? 'ollama' : null);
+  return app.executeSubagents(calls, { parentPrompt: prompt, synthesizeWith: finalizer, taskId });
 }
 
 /**
- * Run multiple agents in parallel ("Council") in read-only ask mode and compare/synthesize their findings.
+ * Run multiple agents in parallel ("Council") for independent findings, then synthesize them
+ * in the active mode so an auto-mode task can continue into implementation.
  */
 export async function runCouncil(prompt, requestedAgents, app) {
   const ch = app.requireChannel();
