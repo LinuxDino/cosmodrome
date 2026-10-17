@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { Screen, sanitize } from './screen.js';
-import { t } from './theme.js';
+import { t, pickGlyphs, reducedMotion } from './theme.js';
 import { header } from './components/header.js';
 import { promptBox } from './components/promptBox.js';
 import { menu } from './components/menu.js';
@@ -29,6 +29,8 @@ export class App {
     this.cli = cli;
     this.t = t;
     this.screen = new Screen(process.stdout);
+    this.glyphs = pickGlyphs(ctx.env);
+    this.still = reducedMotion(ctx.env);
     this.commands = new Map();
     this.aliases = new Map();
     this.statusItems = [];
@@ -150,7 +152,7 @@ export class App {
       });
     }
 
-    this.print(header({ version: VERSION, cwd: tildify(this.state.cwd, this.ctx.paths.home), cols: this.screen.cols, t }));
+    this.print(header({ version: VERSION, cwd: tildify(this.state.cwd, this.ctx.paths.home), cols: this.screen.cols, t, glyphs: this.glyphs }));
     for (const e of this.modules.errors) this.print(`  ${t.red('✗')} module ${e.name}: ${t.dim(e.message)}`);
     if (!Object.keys(this.config.profiles).length) {
       this.print(`  ${t.yellow('!')} No profiles yet - type ${t.bold('/init')} to set up work and private profiles.`);
@@ -241,7 +243,7 @@ export class App {
     this.screen.clear();
     process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
     this.screen.lines = 0;
-    this.print(header({ version: VERSION, cwd: tildify(this.state.cwd, this.ctx.paths.home), cols: this.screen.cols, t }));
+    this.print(header({ version: VERSION, cwd: tildify(this.state.cwd, this.ctx.paths.home), cols: this.screen.cols, t, glyphs: this.glyphs, compact: true }));
   }
 
   printHelp() {
@@ -333,7 +335,7 @@ export class App {
     const cols = this.screen.cols;
     const lines = [];
     if (s.running) {
-      lines.push(spinnerLine({ frame: s.spinnerFrame, verb: s.running.verb, agent: s.running.agent, startedAt: s.running.startedAt, t }));
+      lines.push(spinnerLine({ frame: s.spinnerFrame, verb: s.running.verb, agent: s.running.agent, startedAt: s.running.startedAt, t, glyphs: this.glyphs, still: this.still }));
       lines.push('');
     }
     const top = lines.length;

@@ -84,6 +84,16 @@ API:
 
 `/modules` shows what loaded and any errors. A complete example is in [`examples/modules/standup.mjs`](../examples/modules/standup.mjs).
 
+## Look and accessibility
+
+The mark is a star (cosmo) with a satellite (the agent) in orbit. While an agent works, the satellite circles the star.
+
+| Variable | Effect |
+|---|---|
+| `COSMO_ASCII=1` | ASCII-only logo and spinner (also automatic when the locale isn't UTF-8 or `TERM=linux`) |
+| `COSMO_REDUCED_MOTION=1` | the spinner stands still |
+| `NO_COLOR` | no colors |
+
 ## Testing
 
 The interface is tested in tmux with fake agent scripts:

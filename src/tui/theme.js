@@ -16,3 +16,17 @@ export const t = {
   cyan: wrap(36, 39),
   gray: wrap(90, 39),
 };
+
+/**
+ * Symbols for the logo and spinner. Every one is narrow in all terminals (no East Asian
+ * "ambiguous width" characters). Plain ASCII when the locale isn't UTF-8, on the Linux
+ * console, or with COSMO_ASCII=1.
+ */
+export function pickGlyphs(env = process.env) {
+  const locale = env.LC_ALL || env.LC_CTYPE || env.LANG || '';
+  const ascii = env.COSMO_ASCII === '1' || env.TERM === 'linux' || (locale !== '' && !/utf-?8/i.test(locale));
+  return ascii ? { star: '*', sat: 'o', ascii: true } : { star: '✦', sat: '◉', ascii: false };
+}
+
+/** COSMO_REDUCED_MOTION=1 keeps the spinner still. */
+export const reducedMotion = (env = process.env) => env.COSMO_REDUCED_MOTION === '1';

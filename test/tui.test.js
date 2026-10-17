@@ -125,3 +125,30 @@ test('screen draws each frame in one synchronized write', () => {
   for (const w of writes) assert.ok(w.startsWith('\x1b[?2026h') && w.endsWith('\x1b[?2026l'));
   assert.ok(writes[1].includes('\x1b[J'), 'second frame erases the first');
 });
+
+test('orbit header steps down with the width and falls back to ASCII', async () => {
+  const { header } = await import('../src/tui/components/header.js');
+  const { pickGlyphs } = await import('../src/tui/theme.js');
+  const wide = header({ version: '1.0.0', cwd: '~/w', cols: 100, t: plain });
+  assert.equal(wide[1], ".'    ✦    '.◉    cosmodrome v1.0.0");
+  assert.ok(wide.every((l) => width(l) <= 99));
+  const narrow = header({ version: '1.0.0', cwd: '~/w', cols: 50, t: plain });
+  assert.equal(narrow[0], '-(✦)-◉  cosmodrome v1.0.0 · ~/w');
+  assert.ok(header({ version: '1', cwd: '~/a/very/long/folder/name/here', cols: 30, t: plain }).every((l) => width(l) <= 29));
+  assert.deepEqual(pickGlyphs({ LANG: 'C' }), { star: '*', sat: 'o', ascii: true });
+  assert.equal(pickGlyphs({ LANG: 'de_DE.UTF-8' }).star, '✦');
+  assert.equal(pickGlyphs({}).star, '✦');
+  assert.equal(pickGlyphs({ LANG: 'en_US.UTF-8', COSMO_ASCII: '1' }).ascii, true);
+});
+
+test('orbit spinner: satellite passes in front, then behind, and can stand still', async () => {
+  const { orbitFrame, ORBIT_FRAMES } = await import('../src/tui/components/spinner.js');
+  const glyphs = { star: '✦', sat: '◉' };
+  const frames = Array.from({ length: ORBIT_FRAMES }, (_, i) => orbitFrame(i, { t: plain, glyphs }));
+  assert.equal(frames[0], '(◉  ✦   )');
+  assert.equal(frames[3], '(   ◉   )');
+  assert.equal(frames[7], '(   ✦ . )');
+  assert.equal(new Set(frames.map((f) => width(f))).size, 1, 'every frame has the same width');
+  assert.equal(orbitFrame(5, { t: plain, glyphs }), orbitFrame(5 + ORBIT_FRAMES, { t: plain, glyphs }));
+  assert.equal(orbitFrame(null, { t: plain, glyphs }), '(   ✦   )');
+});

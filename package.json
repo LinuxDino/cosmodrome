@@ -2,6 +2,14 @@
   "name": "cosmodrome",
   "version": "0.2.0",
   "description": "Claude Code-style interface for all your AI coding agents: channels per profile and agent, slash commands, artifacts, and separate work/private logins.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LinuxDino/cosmodrome.git"
+  },
+  "homepage": "https://github.com/LinuxDino/cosmodrome#readme",
+  "bugs": {
+    "url": "https://github.com/LinuxDino/cosmodrome/issues"
+  },
   "type": "module",
   "bin": {
     "cosmodrome": "bin/cosmo.js",
