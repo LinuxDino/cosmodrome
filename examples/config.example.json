@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "defaultProfile": "work",
+  "profiles": {
+    "work": {
+      "description": "Company",
+      "defaultAgent": "copilot",
+      "fleet": ["claude", "copilot"],
+      "workdir": "~/work",
+      "git": { "name": "Your Name", "email": "you@company.com" },
+      "github": { "host": "github.com" },
+      "agents": { "claude": { "args": ["--model", "opus"] } }
+    },
+    "private": {
+      "defaultAgent": "agy",
+      "workdir": "~/private",
+      "git": { "name": "Your Name", "email": "you@example.com" },
+      "passthroughEnv": ["OPENAI_API_KEY"]
+    }
+  },
+  "agents": {}
+}

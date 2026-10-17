@@ -1,0 +1,47 @@
+{
+  "name": "cosmodrome",
+  "version": "0.2.0",
+  "description": "Claude Code-style interface for all your AI coding agents: channels per profile and agent, slash commands, artifacts, and separate work/private logins.",
+  "type": "module",
+  "bin": {
+    "cosmodrome": "bin/cosmo.js",
+    "cosmo": "bin/cosmo.js"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "docs/",
+    "examples/",
+    "README.md",
+    "SPEC.md",
+    "AGENTS.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "claude-code",
+    "copilot",
+    "opencode",
+    "antigravity",
+    "codex",
+    "profiles",
+    "tmux",
+    "cli",
+    "tui",
+    "artifacts",
+    "research"
+  ],
+  "license": "MIT"
+}
