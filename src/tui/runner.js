@@ -1,5 +1,6 @@
 import os from 'node:os';
 import { spawn } from 'node:child_process';
+import { parseCosmoToolTag } from '../orchestrator.js';
 
 function summarizeInput(input) {
   if (!input || typeof input !== 'object') return '';
@@ -9,9 +10,31 @@ function summarizeInput(input) {
 }
 
 /**
+ * Detect tool calls in plain text / stderr output for agents that don't use claude-json
+ * (agy, copilot, codex, opencode, ollama).
+ */
+export function detectTextToolCall(line) {
+  const s = String(line).trim();
+  if (!s) return null;
+  const tag = parseCosmoToolTag(s);
+  if (tag) return { ...tag, consumeLine: true };
+
+  // Heuristic tool patterns emitted by CLI agents (e.g. "⏺ WebSearch(x)", "✓ Read src/a.js")
+  const m1 = s.match(/^(?:⏺|●|▸|⚡|Running tool:?)\s*([A-Z][A-Za-z0-9_]+)\(([^)\n]{0,80})\)$/);
+  if (m1) return { name: m1[1], detail: m1[2], consumeLine: true };
+
+  const m2 = s.match(/^(?:Reading|Viewing|Searching|Fetching|Executing|Running)\s+(`?[^`\n]{2,70}`?)$/i);
+  if (m2) {
+    const verb = s.split(/\s+/)[0];
+    return { name: verb, detail: m2[1].replace(/`/g, ''), consumeLine: false };
+  }
+  return null;
+}
+
+/**
  * Run an agent CLI (or shell command) without a terminal and stream its output.
  * format 'claude-json' understands Claude Code's stream-json events (text, tool calls, session id);
- * 'text' streams stdout line by line.
+ * 'text' streams stdout line by line while also surfacing <cosmo:tool> and heuristic tool actions.
  */
 export function runProcess({ bin, args, env, cwd, format = 'text', onText, onTool }) {
   // Own process group, so an interrupt also reaches the tools the agent started
@@ -56,6 +79,12 @@ export function runProcess({ bin, args, env, cwd, format = 'text', onText, onToo
       }
       return;
     }
+
+    const detected = detectTextToolCall(line);
+    if (detected) {
+      onTool?.(detected.name, detected.detail);
+      if (detected.consumeLine) return;
+    }
     texts.push(line);
     onText?.(line);
   };
@@ -72,6 +101,10 @@ export function runProcess({ bin, args, env, cwd, format = 'text', onText, onToo
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (d) => {
     stderr = (stderr + d).slice(-20000);
+    for (const l of String(d).split('\n')) {
+      const detected = detectTextToolCall(l);
+      if (detected) onTool?.(detected.name, detected.detail);
+    }
   });
 
   const signalGroup = (sig) => {

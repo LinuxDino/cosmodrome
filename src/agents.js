@@ -119,6 +119,25 @@ export const BUILTIN_AGENTS = {
       ],
     },
   },
+  ollama: {
+    label: 'Ollama Local AI',
+    vendor: 'Local (macOS / Linux)',
+    command: 'ollama',
+    install: 'brew install ollama && ollama pull qwen2.5-coder',
+    env: {},
+    loginArgs: ['list'],
+    loginHint: 'Ollama runs locally without an account. Pull a model with: ollama pull qwen2.5-coder',
+    note: 'Runs locally on your machine with zero cloud tokens. Shares local model weights across profiles.',
+    headless: {
+      stream: 'text',
+      emptyHint: 'Make sure Ollama is running (`ollama serve`) and a model is pulled (`ollama pull qwen2.5-coder`).',
+      build: (prompt, s) => [
+        'run',
+        s.model || process.env.COSMO_LOCAL_MODEL || 'qwen2.5-coder',
+        prompt,
+      ],
+    },
+  },
 };
 
 export const AGENT_ALIASES = {
@@ -129,6 +148,8 @@ export const AGENT_ALIASES = {
   oc: 'opencode',
   antigravity: 'agy',
   google: 'agy',
+  local: 'ollama',
+  llama: 'ollama',
 };
 
 export function canonicalAgentName(name, config = {}) {

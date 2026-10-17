@@ -1,13 +1,7 @@
 import readline from 'node:readline/promises';
 
-/**
- * Colors on a stream: FORCE_COLOR (not "0") turns them on, a non-empty NO_COLOR
- * (no-color.org) turns them off, otherwise only on a real terminal that isn't TERM=dumb.
- */
-export function colorEnabled(stream, env = process.env) {
-  if (env.FORCE_COLOR !== undefined && env.FORCE_COLOR !== '' && env.FORCE_COLOR !== '0' && env.FORCE_COLOR !== 'false') return true;
-  if (env.NO_COLOR) return false;
-  return Boolean(stream && stream.isTTY) && env.TERM !== 'dumb';
+function colorEnabled(stream) {
+  return Boolean(stream && stream.isTTY) && !('NO_COLOR' in process.env) && process.env.TERM !== 'dumb';
 }
 
 function palette(stream) {

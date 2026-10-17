@@ -90,30 +90,14 @@ Push the first tag only **after** the manual publish: the tag starts `release.ym
 ### 4. Trusted publishing (no npm token in GitHub)
 1. On npmjs.com → package **Settings** → **Trusted Publisher** → **GitHub Actions**: enter your user/org, the repo, and the workflow file `release.yml`.
 2. Optional, but recommended: disallow token-based publishing for the package.
-3. `.github/workflows/release.yml` already has `permissions: id-token: write` (and `contents: write`, to create the tag when started by hand) and runs `npm publish --provenance --access public`. It installs npm 11 first (trusted publishing needs 11.5.1 or newer), checks that the tag matches `package.json`, and skips versions that are already on npm.
+3. `.github/workflows/release.yml` already has `permissions: id-token: write` and runs `npm publish --provenance --access public`. It installs npm 11 first (trusted publishing needs 11.5.1 or newer), checks that the tag matches `package.json`, and skips versions that are already on npm.
 
 ### 5. Release
-Either push a tag from your machine:
 ```bash
 npm version minor            # bumps package.json, commits, tags e.g. v0.4.0
 git push --follow-tags       # the tag triggers release.yml → npm publish with provenance
 ```
-or start it on GitHub without a tag: bump the version in `package.json` on `main` (a normal commit or PR), then **Actions → Release → Run workflow** and enter the commit (default `main`). The workflow publishes that commit's version and then creates the `vX.Y.Z` tag on it, tagged by you. It stops if that tag already exists on a different commit, and skips the publish if the version is already on npm (so running it on an already published commit only adds the missing tag).
-
 Docs: https://docs.npmjs.com/trusted-publishers
-
-### GitHub Packages
-
-Every release is also published to GitHub Packages by the `github-packages` job in `release.yml`, with the workflow's own `GITHUB_TOKEN` (no secret to set up). GitHub's npm registry only accepts packages scoped to the repository owner, so there the package is called **`@linuxdino/cosmodrome`**; the workflow renames it just before publishing, and `package.json` keeps `cosmodrome` for npmjs.com. It shows up under the repository's **Packages** section.
-
-Installing from GitHub Packages needs a GitHub token, even for a public package:
-```bash
-# once: a classic personal access token with the read:packages scope
-echo "@linuxdino:registry=https://npm.pkg.github.com" >> ~/.npmrc
-echo "//npm.pkg.github.com/:_authToken=YOUR_TOKEN" >> ~/.npmrc
-npm install -g @linuxdino/cosmodrome
-```
-npmjs.com (`npm install -g cosmodrome`) stays the simplest way for everyone else.
 
 ### Recommended repo settings
 - Protect `main`: require the CI check to pass, require PRs.
