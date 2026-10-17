@@ -54,3 +54,14 @@ test('status, env and errors', () => {
   assert.match(bad.stderr, /npm install -g opencode-ai/);
   assert.equal(run('profile', 'add', 'status').status, 1);
 });
+
+test('init without profiles is not "set up", and names are normalized', () => {
+  const { run } = setup();
+  assert.match(run('init').stderr, /Created/);
+  const again = run('init').stderr;
+  assert.doesNotMatch(again, /Already set up/);
+  assert.match(again, /No profiles yet/);
+  assert.equal(run('profile', 'add', 'Private', '--agent', 'claude', '--git-email', 'a@b').status, 0);
+  assert.match(run('profile', 'list').stdout, /^private /m);
+  assert.match(run('init').stderr, /Already set up/);
+});

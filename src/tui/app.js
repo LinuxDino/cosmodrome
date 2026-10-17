@@ -62,7 +62,7 @@ export class App {
   // ------------------------------------------------------------ plumbing
 
   cliCtx() {
-    return { ...this.ctx, cwd: this.state.cwd, interactive: true };
+    return { ...this.ctx, cwd: this.state.cwd, interactive: true, inTui: true };
   }
 
   reloadConfig() {
@@ -176,6 +176,9 @@ export class App {
       });
     }
 
+    // Start on a clean window: push what is on screen up into the scrollback (nothing is
+    // erased), then begin at the top-left corner. COSMO_NO_CLEAR=1 starts where the cursor is.
+    if (this.ctx.env.COSMO_NO_CLEAR !== '1') process.stdout.write('\n'.repeat(this.screen.rows) + '\x1b[H');
     this.print(header({ version: VERSION, cwd: tildify(this.state.cwd, this.ctx.paths.home), cols: this.screen.cols, t, glyphs: this.glyphs }));
     for (const e of this.modules.errors) this.print(`  ${t.red('✗')} module ${e.name}: ${t.dim(e.message)}`);
     if (!Object.keys(this.config.profiles).length) {

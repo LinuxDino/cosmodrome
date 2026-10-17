@@ -153,3 +153,10 @@ test('color detection follows FORCE_COLOR, NO_COLOR and TERM', async () => {
   assert.equal(colorEnabled(tty, { FORCE_COLOR: '0' }), true);
   assert.equal(colorEnabled({ isTTY: false }, { FORCE_COLOR: '0' }), false);
 });
+
+test('profile names: what people type becomes a valid name', async () => {
+  const { normalizeProfileName, validateProfileName } = await import('../src/config.js');
+  assert.equal(normalizeProfileName('Private'), 'private');
+  assert.equal(normalizeProfileName('  My Work '), 'my-work');
+  assert.doesNotThrow(() => validateProfileName(normalizeProfileName('Private')));
+});

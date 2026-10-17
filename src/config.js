@@ -16,6 +16,11 @@ export function emptyConfig() {
   return { version: CONFIG_VERSION, defaultProfile: null, defaultAgent: null, profiles: {}, agents: {} };
 }
 
+/** "Private" -> "private", " My Work " -> "my-work": what people type, as a valid name. */
+export function normalizeProfileName(name) {
+  return String(name ?? '').trim().toLowerCase().replace(/\s+/g, '-');
+}
+
 export function validateProfileName(name) {
   if (typeof name !== 'string' || !NAME_RE.test(name)) {
     throw new CosmoError(`Invalid profile name "${name}".`, {

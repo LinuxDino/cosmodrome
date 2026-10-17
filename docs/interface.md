@@ -94,6 +94,7 @@ The mark is a star (cosmo) with a satellite (the agent) in orbit. While an agent
 | `COSMO_ASCII=1` | ASCII-only logo and spinner (also automatic when the locale isn't UTF-8 or `TERM=linux`) |
 | `COSMO_REDUCED_MOTION=1` | the spinner stands still |
 | `NO_COLOR=1` | no colors |
+| `COSMO_NO_CLEAR=1` | start below the current output instead of on a clean window |
 | `FORCE_COLOR=1` | colors even when output isn't a terminal |
 
 ## Testing

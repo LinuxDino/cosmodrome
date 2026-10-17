@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- Fixed: `/init` could get stuck: a half-finished setup said "Already set up" with no profiles. It now continues with the first profile.
+- Profile names are forgiving: "Private" becomes `private`, "My Work" becomes `my-work`; an invalid name asks again instead of stopping. "n"/"no" ends the setup.
+- Hints inside the interface name slash commands (`/login`, `/profile add`) instead of shell commands.
+- cosmo starts on a clean window at the top; what was on screen moves into the scrollback. `COSMO_NO_CLEAR=1` keeps the old behaviour.
 - `/channels` draws each profile as a small orbit: the agents are its satellites, the current channel is the bright one.
 - Emoji and combined characters are measured correctly (✅, ❤️, 👨‍👩‍👧, flags), so the input box and cursor stay aligned; editing never splits one.
 - Ctrl+Z puts cosmo in the background (`fg` brings it back); Ctrl+J and `\` + Enter insert a new line; Ctrl+L keeps the scrollback.
