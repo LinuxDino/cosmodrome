@@ -48,10 +48,8 @@ export function buildCosmoContext({
     lines.push(
       'Available sibling agents in this profile:',
       ...peers,
-      'Subagent delegation:',
-      '- If a task needs deep repo inspection, web search, or multi-agent verification, spawn subagents by emitting one or more tags:',
-      '  <cosmo:subagent agent="claude" mode="ask">Specific task for the subagent</cosmo:subagent>',
-      '- Cosmodrome will run those subagents in parallel (auto-switching providers if one hits a usage limit) and return their results to you.',
+      'Delegation:',
+      '- You cannot start other agents. If one of them fits a part of the task better, say so; the user can hand it over with /delegate, /council or @agent.',
     );
   }
   lines.push(

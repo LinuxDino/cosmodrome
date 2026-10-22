@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+- Security: an agent's answer can no longer start other agents. `<cosmo:subagent>` tags in agent output (for example copied from a file, web page or issue) are ignored. Delegation only comes from the router or from `/delegate`, `/council` and `@agent`.
+- Changed: the briefing and the default `cosmo-orchestration` skill no longer tell agents to emit `<cosmo:subagent>` tags. Existing skill files are not rewritten.
+
 ## 0.8.0
 - New: `/dashboard` shows durable parent/child task progress, assigned agents, elapsed time, and recent events.
 - New: `/health` summarizes installed providers, cooldowns, errors, latency, and recent usage.

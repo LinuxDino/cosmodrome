@@ -20,7 +20,7 @@ import { which } from '../system.js';
 import { CosmoError, closest, failureHint } from '../ui.js';
 import { saveArtifact, artifactsRoot, listArtifacts } from '../artifacts.js';
 import { UsageTracker } from '../usage.js';
-import { parseSubagentCalls, runDelegation, runCouncil, listOllamaModels, pickLocalModel, createSubagentTagFilter } from '../orchestrator.js';
+import { runDelegation, runCouncil, listOllamaModels, pickLocalModel, createSubagentTagFilter } from '../orchestrator.js';
 import { enrichPrompt } from '../context.js';
 import { TaskStore } from '../tasks.js';
 
@@ -747,8 +747,8 @@ export class App {
   }
 
   /**
-   * The mode a run actually gets. Requests come from model output (<cosmo:subagent mode=...>)
-   * too, so they can lower the mode but never raise it above what the user chose.
+   * The mode a run actually gets. Requests come from the router's plan (model output) too,
+   * so they can lower the mode but never raise it above what the user chose.
    */
   effectiveMode(requested) {
     if (requested === 'ask') return 'ask';
@@ -764,7 +764,6 @@ export class App {
       saveAs,
       echo = true,
       quietMeta = false,
-      skipSubagentSpawn = false,
       enrich = true,
       suppressOutput = false,
       triedAgents = new Set(),
@@ -868,7 +867,6 @@ export class App {
           saveAs,
           echo: false,
           quietMeta,
-          skipSubagentSpawn,
           enrich,
           suppressOutput,
           triedAgents,
@@ -886,7 +884,6 @@ export class App {
           saveAs,
           echo: false,
           quietMeta,
-          skipSubagentSpawn,
           enrich,
           suppressOutput,
           triedAgents: new Set(),
@@ -920,14 +917,6 @@ export class App {
     if (res.code && !res.cancelled) {
       const hint = failureHint({ agent: agent.name, label: agent.label, code: res.code, output: `${res.stderr}\n${res.result?.result || ''}\n${res.text}` });
       this.print(`  ${t.yellow('!')} ${hint}`);
-    }
-
-    // If the agent spawned subagents via <cosmo:subagent>, run them now
-    if (!skipSubagentSpawn && !res.cancelled && res.text) {
-      const subCalls = parseSubagentCalls(res.text);
-      if (subCalls.length) {
-        return this.executeSubagents(subCalls, { parentPrompt: prompt, synthesizeWith: agent.name, saveAs, taskId });
-      }
     }
 
     this.lastResponse = { text: res.text, prompt, channel: `${ch.profile}/${agent.name}`, title: saveAs?.title };
@@ -1106,7 +1095,6 @@ export class App {
         agent: synthesizeWith,
         mode: this.state.mode,
         echo: false,
-        skipSubagentSpawn: true,
         saveAs,
         taskId,
       });

@@ -45,7 +45,7 @@ export function pickLocalModel(installedModels = [], config = {}, env = process.
   return installedModels[0];
 }
 
-/** Most subagents one answer may start; the tags can also come from text an agent merely read. */
+/** Most subagents one router plan may start. */
 export const MAX_SUBAGENTS = 4;
 
 /**
@@ -192,7 +192,6 @@ export async function runDelegation(prompt, app, taskId = app.state.activeTaskId
       agent: 'ollama',
       echo: false,
       quietMeta: true,
-      skipSubagentSpawn: true,
       enrich: false,
       suppressOutput: true,
       taskId: null,
