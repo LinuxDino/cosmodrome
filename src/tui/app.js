@@ -10,19 +10,20 @@ import { statusLine } from './components/statusLine.js';
 import { spinnerLine, subagentLines, pickVerb } from './components/spinner.js';
 import { createMarkdownState, renderMarkdownLine } from './markdown.js';
 import { registerBuiltinCommands } from './commands.js';
-import { ChannelManager, recordRun } from './channels.js';
+import { ChannelManager } from './channels.js';
 import { runProcess } from './runner.js';
 import { loadModules } from './modules.js';
 import { loadConfig, emptyConfig } from '../config.js';
-import { getAgent, buildHeadless, agentNames, canonicalAgentName, agentModel } from '../agents.js';
+import { getAgent, agentNames, canonicalAgentName, agentModel } from '../agents.js';
 import { tildify, tasksDir } from '../paths.js';
 import { which } from '../system.js';
-import { CosmoError, closest, failureHint } from '../ui.js';
+import { CosmoError, closest } from '../ui.js';
 import { saveArtifact, artifactsRoot, listArtifacts } from '../artifacts.js';
 import { UsageTracker } from '../usage.js';
-import { runDelegation, runCouncil, listOllamaModels, pickLocalModel, createSubagentTagFilter } from '../orchestrator.js';
-import { enrichPrompt } from '../context.js';
+import { listOllamaModels, pickLocalModel } from '../orchestrator.js';
 import { TaskStore } from '../tasks.js';
+import { CoreSession, clampMode } from '../core/session.js';
+import { renderCoreEvent } from './coreView.js';
 
 const VERSION = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 const HISTORY_MAX = 500;
@@ -45,12 +46,44 @@ export class App {
     this.usage = new UsageTracker(path.join(path.dirname(ctx.paths.stationDir), 'usage.json'));
     this.tasks = new TaskStore(tasksDir(ctx.paths));
     this.recoveredTasks = this.tasks.recover();
+    // All agent work happens in the core; this class only renders its events.
+    const core = new CoreSession({
+      usage: this.usage,
+      tasks: this.tasks,
+      mode: 'auto',
+      cwd: ctx.cwd,
+      host: {
+        config: () => this.config,
+        env: ctx.env,
+        platform: ctx.platform,
+        paths: ctx.paths,
+        isInstalled: (a) => this.channels.installed(a),
+        resolveBin: (def) => this.cli.requireBin(def, this.ctx),
+        profilePlan: (profile, def) => this.cli.plan(this.config, profile, def, this.cliCtx()),
+        localModel: (def) => this.localModel(def),
+      },
+    });
+    this.core = core;
+    this.views = new Map();
+    this.display = {};
+    core.on('event', (ev) => this.onCoreEvent(ev));
     this.state = {
       input: [],
       cursor: 0,
       menuIndex: 0,
       menuDismissed: false,
-      mode: 'auto',
+      get mode() {
+        return core.mode;
+      },
+      set mode(v) {
+        core.mode = v;
+      },
+      get cwd() {
+        return core.cwd;
+      },
+      set cwd(v) {
+        core.cwd = v;
+      },
       router: true,
       localModel: ctx.env.COSMO_LOCAL_MODEL || null,
       history: this.loadHistory(),
@@ -61,7 +94,6 @@ export class App {
       exitArmedAt: 0,
       suspended: false,
       pasting: false,
-      cwd: ctx.cwd,
       spinnerFrame: 0,
       activeTaskId: null,
     };
@@ -108,8 +140,13 @@ export class App {
       },
       print: (x) => app.print(x),
       ask: (prompt, opts) => app.sendPrompt(prompt, { echo: false, ...opts }),
-      delegate: (prompt) => runDelegation(prompt, app),
-      council: (prompt, agents) => runCouncil(prompt, agents, app),
+      delegate: (prompt) => app.delegate(prompt),
+      council: (prompt, agents) => app.council(prompt, agents),
+      /** Protocol events of every run (see docs/protocol.md). Returns an unsubscribe function. */
+      onEvent(fn) {
+        app.core.on('event', fn);
+        return () => app.core.off('event', fn);
+      },
       get channel() {
         return app.channels.current ? { ...app.channels.current } : null;
       },
@@ -659,7 +696,7 @@ export class App {
       return this.startTaskAndSend(m[2].trim(), { agent, echo: false });
     }
     if (this.state.router) {
-      return this.startTask(text, () => runDelegation(text, this, this.state.activeTaskId));
+      return this.startTask(text, () => this.delegate(text, this.state.activeTaskId));
     }
     return this.startTaskAndSend(text, { echo: false });
   }
@@ -751,367 +788,73 @@ export class App {
    * so they can lower the mode but never raise it above what the user chose.
    */
   effectiveMode(requested) {
-    if (requested === 'ask') return 'ask';
-    if (requested === 'auto') return this.state.mode === 'auto' ? 'auto' : 'ask';
-    return this.state.mode;
+    return clampMode(this.state.mode, requested);
   }
 
-  async sendPrompt(
-    prompt,
-    {
-      agent: agentOverride,
-      mode: modeOverride,
-      saveAs,
-      echo = true,
-      quietMeta = false,
-      enrich = true,
-      suppressOutput = false,
-      triedAgents = new Set(),
-      taskId = this.state.activeTaskId,
-    } = {},
-  ) {
-    const ch = this.requireChannel();
-    if (taskId) this.tasks.update(taskId, { status: 'executing', phase: 'agent', assignedAgent: agentOverride || ch.agent }, 'agent.started');
-    if (echo) this.print(`${t.gray('> ')}${t.gray(prompt)}`);
-    let agentName = agentOverride ? canonicalAgentName(agentOverride, this.config) : ch.agent;
+  // ------------------------------------------------------------ core bridge
 
-    // Silent pre-run switch if the chosen provider is currently on usage cooldown
-    if (agentName && this.usage.isThrottled(ch.profile, agentName)) {
-      const picked = this.usage.pickAgent({
-        profile: ch.profile,
-        preferred: agentName,
-        candidates: agentNames(this.config),
-        isInstalled: (a) => this.channels.installed(a),
-        exclude: triedAgents,
-      });
-      if (picked.switched) {
-        this.print(`  ${t.yellow('⟳')} ${t.dim(`@${agentName} is on usage cooldown — switched silently to`)} ${t.bold(`@${picked.agent}`)}`);
-        agentName = picked.agent;
-      }
-    }
-
-    const agent = getAgent(agentName, this.config, this.ctx.platform);
-    if (!agent) throw new CosmoError(`Unknown agent "${agentOverride || agentName}".`, { hint: `Agents: ${agentNames(this.config).join(', ')}` });
-    const bin = this.cli.requireBin(agent, this.ctx);
-    const session = this.channels.session(ch.profile, agent.name);
-    if (session.moved) this.print(t.dim(`  new conversation for ${tildify(this.state.cwd, this.ctx.paths.home)} (agents keep conversations per folder)`));
-    const runMode = this.effectiveMode(modeOverride);
-    const plan = this.cli.plan(this.config, ch.profile, agent, this.cliCtx());
-    const effectivePrompt = enrich
-      ? enrichPrompt(prompt, {
-          profile: ch.profile,
-          agent: agent.name,
-          cwd: this.state.cwd,
-          mode: runMode,
-          installedAgents: agentNames(this.config).filter((a) => this.channels.installed(a)),
-          paths: this.ctx.paths,
-          allowSubagents: agent.name !== 'ollama',
-        })
-      : prompt;
-    const args = buildHeadless(agent, effectivePrompt, { ...session, mode: runMode, model: this.localModel(agent), agentModel: agentModel(this.config, ch.profile, agent.name), mcpConfig: plan.mcpConfig });
-    if (!args) {
-      throw new CosmoError(`${agent.label} has no one-shot mode configured.`, { hint: 'Use /native, or add "headless" to the agent in cosmo config edit.' });
-    }
-    if (agentOverride && !quietMeta) this.print(t.dim(`  asking @${agent.name} in #${ch.profile}`));
-
-    let write = this.makeWriter();
-    const hideTags = createSubagentTagFilter();
-    const startedAt = Date.now();
-    const handle = runProcess({
-      bin,
-      args,
-      env: plan.env,
-      cwd: this.state.cwd,
-      format: agent.headless?.stream || 'text',
-      onText: (text, info) => {
-        if (suppressOutput) return;
-        const shown = hideTags(text);
-        if (shown == null) return;
-        if (info?.block) write = this.makeWriter();
-        write(shown);
-      },
-      onTool: (name, detail) => {
-        if (this.state.running) {
-          this.state.running.action = { name, detail };
-          this.state.running.toolCount = (this.state.running.toolCount || 0) + 1;
-        }
-        this.print(`${t.magenta('⏺')} ${t.bold(name)}${detail ? t.dim(`(${detail})`) : ''}`);
-        write = this.makeWriter();
-      },
-    });
-    this.startRun(agent.name, handle);
+  /** Run core work with the spinner on; esc cancels everything the core is running. */
+  async track(label, work, display = {}) {
+    this.display = display;
+    this.views.clear();
+    this.startRun(label, { cancel: () => this.core.cancel(), signal: (sig) => this.core.signal(sig) });
     this.render();
-    const res = await handle.promise;
-    const toolCount = this.state.running?.toolCount || 0;
-    this.endRun();
+    try {
+      return await work();
+    } finally {
+      this.endRun();
+      this.display = {};
+      this.render();
+    }
+  }
 
-    const durationMs = Date.now() - startedAt;
-    const { limited } = this.usage.record(ch.profile, agent.name, res, durationMs);
-    triedAgents.add(agent.name);
+  /** track() for one request of a task: the task is closed even when the core throws. */
+  async runTask(label, taskId, work, display) {
+    try {
+      return await this.track(label, work, display);
+    } catch (err) {
+      if (taskId && !['completed', 'failed', 'cancelled'].includes(this.tasks.get(taskId)?.status)) this.core.finishTask(taskId, false, err.message);
+      throw err;
+    } finally {
+      if (taskId) this.state.activeTaskId = null;
+    }
+  }
 
-    // Silent usage failover: if this provider hit a rate/quota limit, switch behind the scenes
-    if (limited && !res.cancelled) {
-      const next = this.usage.pickAgent({
-        profile: ch.profile,
-        preferred: agent.name,
-        candidates: agentNames(this.config),
-        isInstalled: (a) => this.channels.installed(a),
-        exclude: triedAgents,
-      });
-      if (next.switched && next.agent !== agent.name) {
-        this.usage.recordFailover({ profile: ch.profile, from: agent.name, to: next.agent, reason: 'usage limit' });
-        this.print(`  ${t.yellow('⟳')} ${t.yellow(`${agent.label} hit a usage limit — switching silently to @${next.agent}`)}`);
-        return this.sendPrompt(prompt, {
-          agent: next.agent,
-          mode: modeOverride,
-          saveAs,
-          echo: false,
-          quietMeta,
-          enrich,
-          suppressOutput,
-          triedAgents,
-          taskId,
-        });
-      }
-      const waitMs = this.usage.nextCooldownMs(ch.profile, agentNames(this.config));
-      if (waitMs > 0) {
-        const waitSecs = Math.max(1, Math.ceil(waitMs / 1000));
-        this.print(`  ${t.yellow('⏱')} ${t.dim(`all providers are on cooldown — retrying in ${waitSecs}s`)}`);
-        await new Promise((resolve) => setTimeout(resolve, waitMs));
-        return this.sendPrompt(prompt, {
-          agent: agentName,
-          mode: modeOverride,
-          saveAs,
-          echo: false,
-          quietMeta,
-          enrich,
-          suppressOutput,
-          triedAgents: new Set(),
-        });
-      }
-    }
-
-    recordRun(session, res);
-    if (taskId) {
-      this.tasks.event(taskId, res.code === 0 ? 'agent.completed' : 'agent.failed', {
-        agent: agent.name,
-        code: res.code,
-        summary: res.text.slice(-1000),
-      });
-    }
-    const secs = Math.round(durationMs / 1000);
-    const meta = [agent.name];
-    if (toolCount > 0) meta.push(`${toolCount} tool${toolCount === 1 ? '' : 's'}`);
-    if (res.result?.duration_ms) meta.push(`${Math.round(res.result.duration_ms / 1000)}s`);
-    else if (secs) meta.push(`${secs}s`);
-    if (res.result?.total_cost_usd) meta.push(`$${res.result.total_cost_usd.toFixed(3)}`);
-    if (res.cancelled) meta.push('interrupted');
-    else if (res.code) meta.push(`exit ${res.code}`);
-    if (!res.text.trim() && !res.cancelled && res.code === 0 && !quietMeta) {
-      this.print(t.dim(`  (no output)${agent.headless?.emptyHint ? ' ' + agent.headless.emptyHint : ''}`));
-    }
-    if (res.code && !res.cancelled && res.stderr.trim()) {
-      this.print(res.stderr.trim().split('\n').slice(-6).map((l) => `  ${t.red(sanitize(l))}`));
-    }
-    if (!quietMeta) this.print(t.dim(`  ⎿ ${meta.join(' · ')}`));
-    if (res.code && !res.cancelled) {
-      const hint = failureHint({ agent: agent.name, label: agent.label, code: res.code, output: `${res.stderr}\n${res.result?.result || ''}\n${res.text}` });
-      this.print(`  ${t.yellow('!')} ${hint}`);
-    }
-
-    this.lastResponse = { text: res.text, prompt, channel: `${ch.profile}/${agent.name}`, title: saveAs?.title };
-    if (taskId) {
-      this.tasks.update(taskId, {
-        status: res.code === 0 ? 'completed' : 'failed',
-        phase: res.code === 0 ? 'completed' : 'failed',
-        lastError: res.code ? `Agent exited with code ${res.code}.` : null,
-      }, res.code === 0 ? 'task.completed' : 'task.failed');
-      this.state.activeTaskId = null;
-    }
-    if (saveAs && res.text.trim() && !res.cancelled) this.saveResponse({ ...this.lastResponse, ...saveAs });
+  /** Send a prompt to one agent (the channel's, or `agent`). */
+  async sendPrompt(prompt, { agent, mode, saveAs, echo = true, quietMeta = false, enrich = true, suppressOutput = false, taskId = this.state.activeTaskId } = {}) {
+    const ch = this.requireChannel();
+    if (echo) this.print(`${t.gray('> ')}${t.gray(prompt)}`);
+    if (agent && !quietMeta) this.print(t.dim(`  asking @${canonicalAgentName(agent, this.config) || agent} in #${ch.profile}`));
+    const res = await this.runTask(agent || ch.agent, taskId, () => this.core.ask(prompt, { agent, mode, enrich, taskId }), { quietMeta, suppressOutput });
+    this.finishResponse(res, { prompt, saveAs });
     return res;
   }
 
-  /**
-   * Run one or more subagents concurrently (with live Subagent Tree HUD and automatic usage failover).
-   */
-  async executeSubagents(calls, { parentPrompt = '', synthesizeWith = null, council = false, saveAs = null, taskId = this.state.activeTaskId } = {}) {
-    const ch = this.requireChannel();
-    const activeHandles = new Set();
-    const subStates = calls.map((c) => {
-      const picked = this.usage.pickAgent({
-        profile: ch.profile,
-        preferred: canonicalAgentName(c.agent, this.config) || ch.agent,
-        candidates: agentNames(this.config),
-        isInstalled: (a) => this.channels.installed(a),
-      });
-      return {
-        taskId: null,
-        agent: picked.agent,
-        mode: this.effectiveMode(c.mode || 'ask'),
-        prompt: c.prompt,
-        status: 'running',
-        action: 'starting…',
-        startedAt: Date.now(),
-        endedAt: null,
-      };
-    });
+  /** Router: plan the task (JSON plan from the planner, or the keyword router) and run it. */
+  async delegate(prompt, taskId = this.state.activeTaskId, { saveAs } = {}) {
+    const res = await this.runTask('router', taskId, () => this.core.delegate(prompt, { taskId }));
+    this.finishResponse(res, { prompt, saveAs });
+    return res;
+  }
 
-    // Delegated work is real work: persist each specialist request so it can be
-    // inspected and resumed after the parent run or the UI is interrupted.
-    for (const sub of subStates) {
-      const child = this.tasks.create({
-        prompt: sub.prompt,
-        cwd: this.state.cwd,
-        profile: ch.profile,
-        mode: sub.mode,
-        parentTaskId: taskId,
-        assignedAgent: sub.agent,
-        origin: council ? 'council' : 'delegation',
-      });
-      sub.taskId = child.id;
-    }
-    if (taskId) {
-      this.tasks.checkpoint(taskId, {
-        phase: council ? 'council' : 'delegation',
-        childTaskIds: subStates.map((sub) => sub.taskId),
-      });
-    }
+  /** Ask several agents in parallel (read-only) and synthesize. */
+  async council(prompt, agents = null, taskId = this.state.activeTaskId) {
+    this.print(`${t.magenta('✦')} ${t.bold('Agent Council')} ${t.dim('· asking agents in parallel')}`);
+    const res = await this.runTask('council', taskId, () => this.core.council(prompt, agents, { taskId }));
+    this.finishResponse(res, { prompt });
+    return res;
+  }
 
-    this.startRun(
-      council ? 'council' : `${subStates.length} subagent${subStates.length === 1 ? '' : 's'}`,
-      {
-        cancel: () => {
-          for (const h of activeHandles) h.cancel?.();
-        },
-        signal: (sig) => {
-          for (const h of activeHandles) h.signal?.(sig);
-        },
-      },
-      subStates,
-    );
-    this.render();
+  finishResponse(res, { prompt, saveAs }) {
+    const ch = this.channels.current;
+    const who = res.results?.length > 1 && !res.synthesized ? 'multi' : res.agent || ch?.agent;
+    this.lastResponse = { text: res.text || '', prompt, channel: `${ch?.profile}/${who}`, title: saveAs?.title };
+    if (saveAs && res.text?.trim() && !res.cancelled) this.saveResponse({ ...this.lastResponse, ...saveAs });
+  }
 
-    const runSingleSub = async (sub) => {
-      const finishChild = (patch, event) => {
-        if (sub.taskId) this.tasks.update(sub.taskId, patch, event);
-      };
-      const tried = new Set();
-      for (;;) {
-        const agent = getAgent(sub.agent, this.config, this.ctx.platform);
-        if (!agent || !this.channels.installed(agent.name)) {
-          sub.status = 'error';
-          sub.action = 'not installed';
-          sub.endedAt = Date.now();
-          finishChild({ status: 'failed', phase: 'failed', lastError: 'Agent is not installed.' }, 'task.failed');
-          return { agent: sub.agent, code: 127, text: '', stderr: 'not installed' };
-        }
-        finishChild({ status: 'executing', phase: 'agent', assignedAgent: agent.name, lastError: null }, 'agent.started');
-        const bin = this.cli.requireBin(agent, this.ctx);
-        const plan = this.cli.plan(this.config, ch.profile, agent, this.cliCtx());
-        const delegatedPrompt = enrichPrompt(sub.prompt, {
-          profile: ch.profile,
-          agent: agent.name,
-          cwd: this.state.cwd,
-          mode: sub.mode,
-          installedAgents: agentNames(this.config).filter((a) => this.channels.installed(a)),
-          paths: this.ctx.paths,
-          allowSubagents: agent.name !== 'ollama',
-        });
-        const args = buildHeadless(agent, delegatedPrompt, { continued: false, mode: sub.mode, model: this.localModel(agent), agentModel: agentModel(this.config, ch.profile, agent.name), mcpConfig: plan.mcpConfig });
-        const t0 = Date.now();
-        const handle = runProcess({
-          bin,
-          args,
-          env: plan.env,
-          cwd: this.state.cwd,
-          format: agent.headless?.stream || 'text',
-          onTool: (name, detail) => {
-            sub.action = `${name}${detail ? `(${detail.slice(0, 28)})` : ''}`;
-            if (this.state.running) {
-              this.state.running.action = { name: `@${sub.agent}:${name}`, detail };
-              this.state.running.toolCount = (this.state.running.toolCount || 0) + 1;
-            }
-            this.requestRender();
-          },
-          onText: (line) => {
-            if (line.trim()) sub.action = line.trim().slice(0, 36);
-          },
-        });
-        activeHandles.add(handle);
-        const res = await handle.promise;
-        activeHandles.delete(handle);
-
-        const { limited } = this.usage.record(ch.profile, agent.name, res, Date.now() - t0);
-        tried.add(agent.name);
-        if (limited && !res.cancelled) {
-          const next = this.usage.pickAgent({
-            profile: ch.profile,
-            preferred: agent.name,
-            candidates: agentNames(this.config),
-            isInstalled: (a) => this.channels.installed(a),
-            exclude: tried,
-          });
-          if (next.switched && next.agent !== agent.name) {
-            this.usage.recordFailover({ profile: ch.profile, from: agent.name, to: next.agent, reason: 'usage limit' });
-            sub.status = 'switched';
-            sub.action = `${agent.name} limit → @${next.agent}`;
-            sub.agent = next.agent;
-            this.render();
-            continue;
-          }
-        }
-        sub.endedAt = Date.now();
-        sub.status = res.code === 0 ? 'done' : 'error';
-        sub.action = res.code === 0 ? 'completed' : `exit ${res.code}`;
-        finishChild({
-          status: res.code === 0 ? 'completed' : 'failed',
-          phase: res.code === 0 ? 'completed' : 'failed',
-          assignedAgent: agent.name,
-          lastError: res.code === 0 ? null : `Agent exited with code ${res.code}.`,
-        }, res.code === 0 ? 'task.completed' : 'task.failed');
-        this.render();
-        return { agent: agent.name, ...res };
-      }
-    };
-
-    const results = await Promise.all(subStates.map((s) => runSingleSub(s)));
-    this.endRun();
-
-    for (const r of results) {
-      this.print(`${t.magenta('✦')} ${t.bold(`@${r.agent}`)} ${t.dim(r.code === 0 ? '✓ advisor complete' : `✗ advisor exit ${r.code}`)}`);
-    }
-
-    const combinedText = results
-      .filter((r) => r.text.trim())
-      .map((r) => `## @${r.agent}\n${r.text.trim().slice(0, 12000)}`)
-      .join('\n\n');
-
-    if (synthesizeWith && this.channels.installed(synthesizeWith) && combinedText) {
-      const synthPrompt =
-        `You are the final executor for "${parentPrompt}". Review these advisor findings, resolve conflicts, and provide the actionable final response. ` +
-        `Be concise. Include changed files or exact next steps and tests. Do not mention internal routing.\n\n${combinedText.slice(0, 30000)}`;
-      return this.sendPrompt(synthPrompt, {
-        agent: synthesizeWith,
-        mode: this.state.mode,
-        echo: false,
-        saveAs,
-        taskId,
-      });
-    }
-
-    this.lastResponse = { text: combinedText, prompt: parentPrompt, channel: `${ch.profile}/multi`, title: saveAs?.title };
-    if (taskId) {
-      const succeeded = results.length > 0 && results.every((result) => result.code === 0);
-      this.tasks.update(
-        taskId,
-        { status: succeeded ? 'completed' : 'failed', phase: succeeded ? 'completed' : 'failed', lastError: succeeded ? null : 'All delegated agents failed.' },
-        succeeded ? 'task.completed' : 'task.failed',
-      );
-      this.state.activeTaskId = null;
-    }
-    if (saveAs && combinedText) this.saveResponse({ ...this.lastResponse, ...saveAs });
-    return { code: 0, text: combinedText, results };
+  /** Render one protocol event from the core (see src/tui/coreView.js). */
+  onCoreEvent(ev) {
+    renderCoreEvent(this, ev);
   }
 
   saveResponse({ text, prompt, channel, title, kind = 'note' }) {

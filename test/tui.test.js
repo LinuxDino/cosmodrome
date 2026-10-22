@@ -47,11 +47,18 @@ test('headless args per agent and mode', () => {
   const next = buildHeadless(claude, 'again', { mode: 'auto', resumeId: 'abc', continued: true });
   assert.ok(next.includes('--resume') && next.includes('abc') && next.includes('acceptEdits'));
   assert.ok(buildHeadless(getAgent('copilot'), 'x', { mode: 'auto' }).includes('--allow-all-tools'));
-  assert.deepEqual(buildHeadless(getAgent('opencode'), 'x', { mode: 'ask' }), ['run', '--agent', 'plan', 'x']);
-  assert.ok(buildHeadless(getAgent('codex'), 'x', { continued: true, mode: 'ask' }).join(' ').includes('read-only resume --last x'));
+  assert.ok(first.includes('--include-partial-messages'));
+  assert.deepEqual(buildHeadless(getAgent('opencode'), 'x', { mode: 'ask' }), ['run', '--format', 'json', '--agent', 'plan', 'x']);
+  assert.deepEqual(buildHeadless(getAgent('opencode'), 'x', { mode: 'auto', resumeId: 'ses_1' }), ['run', '--format', 'json', '--session', 'ses_1', '--auto', 'x']);
+  // codex: exec options before `resume`; the sandbox goes in as -c (resume has no --sandbox).
+  assert.deepEqual(buildHeadless(getAgent('codex'), 'x', { continued: true, mode: 'ask' }), ['exec', '--json', '--skip-git-repo-check', 'resume', '--last', '-c', 'sandbox_mode="read-only"', 'x']);
+  assert.deepEqual(buildHeadless(getAgent('codex'), 'x', { resumeId: 't1', mode: 'auto' }).slice(3), ['resume', 't1', '-c', 'sandbox_mode="workspace-write"', 'x']);
+  assert.ok(!buildHeadless(getAgent('codex'), 'x', { mode: 'auto' }).includes('--full-auto'));
+  const agy = buildHeadless(getAgent('agy'), 'x', { mode: 'ask', resumeId: 'c1' });
+  assert.ok(agy.join(' ').includes('--output-format stream-json') && agy.join(' ').includes('--conversation c1') && agy.join(' ').includes('--mode plan'));
   const ollama = getAgent('local');
   assert.equal(ollama.name, 'ollama');
-  assert.deepEqual(buildHeadless(ollama, 'explain this', { model: 'qwen3:8b' }), ['run', 'qwen3:8b', 'explain this']);
+  assert.equal(ollama.headless.stream, 'ollama-http', 'ollama runs through the HTTP API, not the CLI');
   const custom = getAgent('aider', { agents: { aider: { command: 'aider', headless: { args: ['--message', '{prompt}'], autoArgs: ['--yes'] } } } });
   assert.deepEqual(buildHeadless(custom, 'go', { mode: 'auto' }), ['--message', 'go', '--yes']);
 });
@@ -98,8 +105,10 @@ test('markdown styling and truncation', () => {
   assert.equal(width(truncate('\x1b[35mhello world\x1b[39m', 6)), 6);
 });
 
-test('channel sessions continue only after a good run and only in the same folder', () => {
+test('channel sessions continue only after a good run and only in the same folder', async () => {
+  const { CoreSession } = await import('../src/core/session.js');
   const app = { state: { cwd: '/a' } };
+  app.core = new CoreSession({ host: {}, usage: null, tasks: null });
   const ch = new ChannelManager(app);
   const s = ch.session('work', 'claude');
   assert.equal(recordRun(s, { code: 1, text: '', sessionId: 'x', cancelled: false }), false);

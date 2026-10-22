@@ -5,6 +5,11 @@ import { readGhUser } from '../github.js';
 import { tildify } from '../paths.js';
 import { CosmoError, closest } from '../ui.js';
 import { detectProfile } from '../detect.js';
+import { recordRun } from '../core/session.js';
+
+export { recordRun };
+
+const mockMode = (env) => Boolean(env?.COSMO_MOCK && env.COSMO_MOCK !== '0');
 
 /**
  * A channel is one profile + one agent, written "work/claude".
@@ -13,9 +18,17 @@ import { detectProfile } from '../detect.js';
 export class ChannelManager {
   constructor(app) {
     this.app = app;
-    this.current = null;
     this.ghUser = null;
-    this.sessions = new Map();
+  }
+
+  /** The active channel lives in the core session, so every front end sees the same one. */
+  get current() {
+    return this.app.core?.channel ?? this._current ?? null;
+  }
+
+  set current(v) {
+    if (this.app.core) this.app.core.channel = v;
+    else this._current = v;
   }
 
   get config() {
@@ -28,6 +41,7 @@ export class ChannelManager {
 
   installed(agentName) {
     const def = getAgent(agentName, this.config, this.app.ctx.platform);
+    if (def?.builtin && mockMode(this.app.ctx.env)) return true; // COSMO_MOCK replays recorded runs
     return Boolean(def && which(def.command, this.app.ctx.env.PATH));
   }
 
@@ -125,39 +139,16 @@ export class ChannelManager {
     this.switchTo({ profile: this.current.profile, agent: names[(i + 1) % names.length] });
   }
 
-  /**
-   * Conversation state of a channel in a folder. Agents store conversations per folder
-   * (Claude can't --resume a session from another folder), so a new folder starts fresh;
-   * `moved` tells the caller that an earlier conversation was left behind.
-   */
+  /** Conversation state of a channel in a folder (kept by the core session). */
   session(profile = this.current?.profile, agent = this.current?.agent, cwd = this.app.state.cwd) {
-    const key = `${profile}/${agent}`;
-    const old = this.sessions.get(key);
-    if (old && old.cwd === cwd) return old;
-    const fresh = { continued: false, resumeId: null, cwd, moved: Boolean(old?.continued) };
-    this.sessions.set(key, fresh);
-    return fresh;
+    return this.app.core.conversation(profile, agent, cwd);
   }
 
   resetSession() {
-    if (this.current) this.sessions.delete(this.id);
+    if (this.current) this.app.core.resetConversation(this.current.profile, this.current.agent);
   }
 
   describe() {
     return { id: this.id, ghUser: this.ghUser, cwd: tildify(this.app.state.cwd, this.app.ctx.paths.home) };
   }
-}
-
-/**
- * Remember a finished run so the next message continues it. A failed run (not signed in,
- * bad flag, ...) leaves the session untouched, so we never --continue/--resume a
- * conversation that was never created.
- */
-export function recordRun(session, res) {
-  session.moved = false;
-  const usable = res.code === 0 || (res.cancelled && res.text.trim());
-  if (!usable) return false;
-  session.continued = true;
-  if (res.sessionId) session.resumeId = res.sessionId;
-  return true;
 }

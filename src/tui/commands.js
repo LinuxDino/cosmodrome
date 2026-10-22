@@ -9,7 +9,7 @@ import { saveConfig } from '../config.js';
 import { listArtifacts, saveArtifact, zipArtifacts, artifactsRoot } from '../artifacts.js';
 import { createMarkdownState, renderMarkdownLine } from './markdown.js';
 import { orbitMap } from './components/orbitMap.js';
-import { runDelegation, runCouncil, listOllamaModels, pickLocalModel } from '../orchestrator.js';
+import { listOllamaModels, pickLocalModel } from '../orchestrator.js';
 import { loadSkills, loadRules, loadMcpServers, initCustomizations, syncAgentCustomizations, cosmoMdPath, COSMO_MD_TEMPLATE } from '../skills.js';
 import { REVIEW_GATES, agentProfile, buildProjectReviewPrompt, buildWorkLoopPrompt } from '../governance.js';
 import { renderDashboard, renderProviderHealth, renderProviderMetrics, renderTaskMetrics } from './components/dashboard.js';
@@ -535,7 +535,7 @@ export function registerBuiltinCommands(app) {
       description: 'Local AI breaks down & delegates task across agents with failover',
       run: (args) => {
         if (!args) throw new CosmoError('What should Mission Control delegate?', { hint: '/delegate audit src/ and fix edge cases' });
-        return app.startTask(args, () => runDelegation(args, app, app.state.activeTaskId));
+        return app.startTask(args, () => app.delegate(args, app.state.activeTaskId));
       },
     },
     {
@@ -545,7 +545,7 @@ export function registerBuiltinCommands(app) {
       description: 'Ask multiple agents in parallel and synthesize their answers',
       run: (args) => {
         if (!args) throw new CosmoError('What should the agent council discuss?', { hint: '/council best way to structure git worktrees' });
-        return app.startTask(args, () => runCouncil(args, null, app));
+        return app.startTask(args, () => app.council(args, null, app.state.activeTaskId));
       },
     },
     {
