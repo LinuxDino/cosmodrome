@@ -1,8 +1,21 @@
 # Changelog
 
-## Unreleased
-- Security: an agent's answer can no longer start other agents. `<cosmo:subagent>` tags in agent output (for example copied from a file, web page or issue) are ignored. Delegation only comes from the router or from `/delegate`, `/council` and `@agent`.
-- Changed: the briefing and the default `cosmo-orchestration` skill no longer tell agents to emit `<cosmo:subagent>` tags. Existing skill files are not rewritten.
+## 1.0.0
+A new core: every agent is driven through an adapter that emits one event stream, plans are validated JSON, and the interface only renders events.
+
+- Security: an agent's answer can no longer start other agents. `<cosmo:subagent>` tags in agent output (for example copied from a file, web page or issue) are ignored. Delegation only comes from the planner or from `/delegate`, `/council` and `@agent`. The briefing and the default `cosmo-orchestration` skill no longer tell agents to emit the tag (existing skill files are not rewritten).
+- New: `src/core/` with `CoreSession`, a planner and an executor, and no terminal code. A future daemon or app can use the same core and events. The events are documented in `docs/protocol.md` (protocol version 1); modules get them with `api.onEvent(fn)`.
+- New: structured output for every agent. Copilot uses `--output-format json --stream on` (answers now stream instead of appearing at the end), Codex `exec --json`, OpenCode `run --format json`, agy `--output-format stream-json`, and Claude adds `--include-partial-messages` for token streaming. Flags were checked against Claude Code 2.1.308, Copilot CLI 1.0.98, codex-cli 0.163.0, opencode 1.19.3 and agy 1.4.5.
+- New: Ollama runs through its HTTP API (`/api/chat`, `OLLAMA_HOST`) instead of `ollama run`: no spinner or color noise, and follow-ups keep the conversation.
+- New: the router asks for a JSON plan (Ollama structured outputs with the plan schema). Plans are validated: known keys only, at most 4 steps, installed agents not on cooldown, no step above the current mode, non-empty prompts, `dependsOn` only on earlier steps. Invalid plans fall back to one direct step from the keyword router.
+- New: config keys `planner` (`ollama` | `claude` | `off`) and `routing` (keyword rules, checked before the built-in ones).
+- New: plan steps with `dependsOn` get the results of earlier steps; independent steps run in parallel; a step whose dependency failed is skipped. One rule picks the synthesis agent for router plans and `/council`.
+- New: `COSMO_MOCK=1` replays recorded runs for every agent (work on the interface without accounts), `COSMO_RECORD=dir` saves raw agent output for new fixtures.
+- Changed: tool lines come only from what an agent reports. Guessing tools from text (`Reading …`, `⏺ Name(…)`) is gone; `<cosmo:tool>` still works for custom agents.
+- Changed: usage limits are detected per adapter and reported as `error` events of kind `limit`, so failover works the same for every agent. Errors reported after an interrupt are no longer shown.
+- Fixed: Codex auto mode used `--full-auto`, which codex-cli 0.163 no longer has; the sandbox is now set with `-c sandbox_mode=…`, which also works with `exec resume`.
+- Fixed: OpenCode auto mode passes `--auto`, so a headless run doesn't wait on a permission prompt.
+- Fixed: `npm test` hung on machines with OpenCode installed.
 
 ## 0.8.0
 - New: `/dashboard` shows durable parent/child task progress, assigned agents, elapsed time, and recent events.
