@@ -1,0 +1,2 @@
+{"type":"session.error","data":{"errorType":"authentication","message":"No authentication information found. Run /login to sign in."},"id":"00000000-0000-4000-8000-000000000201","timestamp":"2026-10-22T17:00:00.000Z"}
+{"type":"result","timestamp":"2026-10-22T17:00:05.000Z","sessionId":"22222222-2222-4222-8222-222222222222","exitCode":1,"usage":{"premiumRequests":1,"totalApiDurationMs":3100,"sessionDurationMs":4200,"codeChanges":{"linesAdded":0,"linesRemoved":0,"filesModified":[]}}}

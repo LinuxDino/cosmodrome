@@ -1,0 +1,3 @@
+{"type":"step_start","timestamp":1792688900000,"sessionID":"ses_00000000000000000000000001","part":{"sessionID":"ses_00000000000000000000000001","id":"prt_1","messageID":"msg_1","type":"step-start"}}
+{"type":"text","timestamp":1792688900010,"sessionID":"ses_00000000000000000000000001","part":{"sessionID":"ses_00000000000000000000000001","id":"prt_2","messageID":"msg_1","type":"text","text":"2 + 2 is 4.\nThe sky is blue.","time":{"start":1,"end":2}}}
+{"type":"step_finish","timestamp":1792688900011,"sessionID":"ses_00000000000000000000000001","part":{"sessionID":"ses_00000000000000000000000001","id":"prt_f11","messageID":"msg_1","type":"step-finish","reason":"stop","tokens":{"total":225,"input":211,"output":14,"reasoning":0,"cache":{"write":0,"read":0}},"cost":0}}

@@ -102,10 +102,12 @@ export class UsageTracker {
     const now = Date.now();
     e.runs++;
     e.lastUsedAt = now;
-    e.durationMs += res.result?.duration_ms || durationMs || 0;
-    if (res.result?.total_cost_usd) e.costUsd += Number(res.result.total_cost_usd) || 0;
+    // `res` is a run_end event (src/core/events.js); `result` is the older Claude-only shape.
+    e.durationMs += res.usage?.durationMs || res.result?.duration_ms || durationMs || 0;
+    const cost = res.usage?.costUsd ?? res.result?.total_cost_usd;
+    if (cost) e.costUsd += Number(cost) || 0;
 
-    const limited = isUsageLimit(res);
+    const limited = typeof res.limitHit === 'boolean' ? res.limitHit : isUsageLimit(res);
     if (limited) {
       e.rateLimits++;
       e.throttledUntil = now + this.cooldownMs;

@@ -7,7 +7,7 @@
 ## Scope
 - npm package, Node ≥ 18.17, macOS + Linux, zero runtime dependencies.
 - **Interface:** bordered input, `/` command menu with completion, `#` channels, `@` one-off agent, `!` shell, ask/auto mode, streaming answers, interrupt, history, modular status line.
-- **Agent runs:** one-shot headless mode of each CLI (Claude `-p` stream-json, Copilot `-p --output-format text --stream off`, OpenCode `run`, Codex `exec`, agy `-p`). Conversations continue per channel. `/native` hands the terminal to the full agent UI.
+- **Agent runs:** one-shot headless mode of each CLI in its JSON output mode (Claude `-p` stream-json, Copilot `-p --output-format json --stream on`, OpenCode `run --format json`, Codex `exec --json`, agy `-p --output-format stream-json`) and Ollama over its HTTP API. Adapters in `src/core/adapters/` turn the output into one event stream (`docs/protocol.md`). Conversations continue per channel. `/native` hands the terminal to the full agent UI.
 - **Artifacts:** answers saved as folders; code blocks become files; `/zip` packs them (built-in zip writer).
 - **Auto switch:** a folder inside a profile's `workdir` selects that profile, and you get a warning when a channel doesn't match the folder.
 - **Modules:** `~/.config/cosmodrome/modules/*.mjs` add commands and status items.

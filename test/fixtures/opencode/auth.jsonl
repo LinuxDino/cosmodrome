@@ -1,0 +1,1 @@
+{"type":"error","timestamp":1792688900000,"sessionID":"ses_00000000000000000000000001","error":{"name":"ProviderAuthError","data":{"providerID":"anthropic","message":"Not authenticated. Run opencode auth login."}}}
