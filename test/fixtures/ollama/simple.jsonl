@@ -1,0 +1,4 @@
+{"model":"qwen3:8b","created_at":"2026-10-22T17:09:21.80192Z","message":{"role":"assistant","content":"2 + 2 is 4."},"done":false}
+{"model":"qwen3:8b","created_at":"2026-10-22T17:09:21.80192Z","message":{"role":"assistant","content":"\nThe sky"},"done":false}
+{"model":"qwen3:8b","created_at":"2026-10-22T17:09:21.80192Z","message":{"role":"assistant","content":" is blue."},"done":false}
+{"model":"qwen3:8b","created_at":"2026-10-22T17:09:21.80192Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","total_duration":403454875,"prompt_eval_count":22,"eval_count":12}

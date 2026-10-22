@@ -12,13 +12,16 @@ cosmodrome drives five agents out of the box. Each one runs as its **official CL
 
 ## Overview
 
-| Channel agent | Isolation | Login | One-shot command used by the interface |
+| Channel agent | Isolation | Login | One-shot command used by the interface (checked version) |
 |---|---|---|---|
-| `claude` – Claude Code | `CLAUDE_CONFIG_DIR` | first start or `/login` inside | `claude -p … --output-format stream-json --verbose` (+ `--resume <session>`) |
-| `copilot` – GitHub Copilot CLI | `COPILOT_HOME` | `/login` inside, or the profile's gh login | `copilot -p … --output-format text --stream off` (+ `--continue`) |
-| `opencode` – OpenCode | XDG config/data/state dirs | `opencode auth login` | `opencode run …` (+ `--continue`) |
-| `codex` – OpenAI Codex CLI | `CODEX_HOME` | `codex login` | `codex exec …` (+ `resume --last`) |
-| `agy` – Antigravity CLI | private `HOME` | first start | `agy -p … --print-timeout 15m` (+ `--continue`) |
+| `claude` – Claude Code | `CLAUDE_CONFIG_DIR` | first start or `/login` inside | `claude -p --output-format stream-json --verbose --include-partial-messages …` (+ `--resume <session>`) · 2.1.308 |
+| `copilot` – GitHub Copilot CLI | `COPILOT_HOME` | `/login` inside, or the profile's gh login | `copilot -p … --output-format json --stream on` (+ `--resume=<session>`) · 1.0.98 |
+| `opencode` – OpenCode | XDG config/data/state dirs | `opencode auth login` | `opencode run --format json …` (+ `--session <id>`) · 1.19.3 |
+| `codex` – OpenAI Codex CLI | `CODEX_HOME` | `codex login` | `codex exec --json …` (+ `resume <thread>`) · 0.163.0 |
+| `agy` – Antigravity CLI | private `HOME` | first start | `agy -p … --output-format stream-json --print-timeout 15m` (+ `--conversation <id>`) · 1.4.5 |
+| `ollama` – Ollama | shared local models | none | HTTP API `POST /api/chat` (no CLI; `OLLAMA_HOST` is respected) · 0.40.2 |
+
+Every agent runs in a structured (JSON) output mode, read by an adapter in `src/core/adapters/`. The interface shows the tool calls the agent reports and never guesses them from ordinary text. Follow-ups resume the agent's own session id.
 
 Sign in per profile from the interface with `/login <agent>`, or from the shell with `cosmo login <profile> <agent>`.
 
@@ -28,8 +31,8 @@ Sign in per profile from the interface with `/login <agent>`, or from the shell 
 |---|---|---|
 | claude | `--allowedTools Read,Grep,Glob,WebSearch,WebFetch` | + `--permission-mode acceptEdits` |
 | copilot | `--deny-tool=write --deny-tool=shell --allow-all-urls` | `--allow-all-tools` |
-| opencode | `--agent plan` (read-only agent) | default build agent |
-| codex | `--sandbox read-only` | `--full-auto` |
+| opencode | `--agent plan` (read-only agent) | `--auto` (approves permission prompts it can't ask in a headless run) |
+| codex | `-c sandbox_mode="read-only"` | `-c sandbox_mode="workspace-write"` |
 | agy | `--mode plan` | `--mode accept-edits` |
 
 Shell commands stay blocked for Claude even in auto mode. For full control, use `/native`, which opens the agent's own interface with all of its permission prompts.
@@ -38,7 +41,7 @@ Shell commands stay blocked for Claude even in auto mode. For full control, use 
 
 ### Claude Code
 - Install: `npm install -g @anthropic-ai/claude-code`
-- The interface parses Claude's stream-json output, so you see tool calls (`⏺ WebSearch(…)`) and cost, and every channel resumes its own session id.
+- The interface parses Claude's stream-json output (with token streaming), so you see tool calls (`⏺ WebSearch(…)`) and cost, and every channel resumes its own session id.
 - macOS: the login lives in the Keychain. Claude Code about 2.1.121 and later names the Keychain entry after `CLAUDE_CONFIG_DIR`, so every profile gets its own; older versions share one entry, so update first (`claude update`). `cosmo doctor` shows which case you have. This comes from community reports, not official docs, so still run `/status` inside `cosmo work claude` and `cosmo private claude` once to confirm each shows the right account.
 - Because the entry is tied to the folder path, moving the cosmodrome data folder (or changing `COSMODROME_HOME`) means signing in again. Before `cosmo profile remove`, run `/logout` in that profile if you want the Keychain entry gone.
 
@@ -104,6 +107,7 @@ Each profile can pick a model per agent: `/model claude opus` in the interface, 
 ```
 
 Templates: `{agentDir}` (per profile + agent), `{profileDir}`, `{home}`, `{prompt}` (headless args). Overriding a built-in merges its `env`; any `headless` you set replaces the built-in one.
+Custom agents use the plain-text adapter: every output line is answer text, and only an explicit `<cosmo:tool name="…" detail="…" />` line shows up as a tool step.
 
 Per profile you can add agent args and env:
 

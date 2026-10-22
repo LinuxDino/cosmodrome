@@ -28,13 +28,14 @@ export const BUILTIN_AGENTS = {
     // macOS: Claude Code names its Keychain entry after CLAUDE_CONFIG_DIR since about 2.1.121
     // (community reports, not official docs); older versions share one entry.
     keychain: { scope: 'per-folder', since: [2, 1, 121] },
+    // Headless flags checked against Claude Code 2.1.308; parsed by src/core/adapters/claude.js.
     headless: {
       stream: 'claude-json',
       // The prompt goes last, after "--": a prompt starting with "-" would otherwise be
       // read as an option, and --allowedTools takes a variadic list.
       build: (prompt, s) => [
         '-p',
-        '--output-format', 'stream-json', '--verbose',
+        '--output-format', 'stream-json', '--verbose', '--include-partial-messages',
         ...(s.agentModel ? ['--model', s.agentModel] : []),
         '--allowedTools', 'Read,Grep,Glob,WebSearch,WebFetch',
         ...(s.resumeId ? ['--resume', s.resumeId] : s.continued ? ['--continue'] : []),
@@ -57,13 +58,14 @@ export const BUILTIN_AGENTS = {
       ...(s.mcpConfig ? [`--additional-mcp-config=@${s.mcpConfig}`] : []),
     ],
     note: "Isolated via COPILOT_HOME. Copilot can also use this profile's gh login.",
+    // Headless flags checked against GitHub Copilot CLI 1.0.98; parsed by src/core/adapters/copilot.js.
     headless: {
-      stream: 'text',
+      stream: 'copilot-json',
       build: (prompt, s) => [
-        '-p', prompt, '--output-format', 'text', '--stream', 'off', '--no-color',
+        '-p', prompt, '--output-format', 'json', '--stream', 'on', '--no-color',
         ...(s.agentModel ? ['--model', s.agentModel] : []),
         ...(s.mcpConfig ? [`--additional-mcp-config=@${s.mcpConfig}`] : []),
-        ...(s.continued ? ['--continue'] : []),
+        ...(s.resumeId ? [`--resume=${s.resumeId}`] : s.continued ? ['--continue'] : []),
         // Permission patterns are shell(...), write(...), url(...) (copilot help permissions):
         // ask mode denies writes and shell commands, reading and the web stay allowed.
         ...(s.mode === 'auto'
@@ -85,13 +87,15 @@ export const BUILTIN_AGENTS = {
     loginArgs: ['auth', 'login'],
     loginHint: 'Pick a provider (e.g. GitHub Copilot) and follow the prompts.',
     note: 'Isolated via XDG dirs. Tools started by OpenCode see the same XDG dirs.',
+    // Headless flags checked against opencode 1.19.3; parsed by src/core/adapters/opencode.js.
+    // Auto mode needs --auto: a headless run can't answer permission prompts.
     headless: {
-      stream: 'text',
+      stream: 'opencode-json',
       build: (prompt, s) => [
-        'run',
+        'run', '--format', 'json',
         ...(s.agentModel ? ['--model', s.agentModel] : []),
-        ...(s.continued ? ['--continue'] : []),
-        ...(s.mode === 'auto' ? [] : ['--agent', 'plan']),
+        ...(s.resumeId ? ['--session', s.resumeId] : s.continued ? ['--continue'] : []),
+        ...(s.mode === 'auto' ? ['--auto'] : ['--agent', 'plan']),
         prompt,
       ],
     },
@@ -105,13 +109,16 @@ export const BUILTIN_AGENTS = {
     loginArgs: ['login'],
     loginHint: 'Sign in with ChatGPT or an API key.',
     note: 'Isolated via CODEX_HOME.',
+    // Headless flags checked against codex-cli 0.163.0; parsed by src/core/adapters/codex.js.
+    // exec options come before `resume`; resume has no --sandbox, so the sandbox is set with
+    // -c sandbox_mode=..., which both accept (--full-auto is gone).
     headless: {
-      stream: 'text',
+      stream: 'codex-json',
       build: (prompt, s) => [
-        'exec', '--skip-git-repo-check',
+        'exec', '--json', '--skip-git-repo-check',
         ...(s.agentModel ? ['--model', s.agentModel] : []),
-        ...(s.mode === 'auto' ? ['--full-auto'] : ['--sandbox', 'read-only']),
-        ...(s.continued ? ['resume', '--last'] : []),
+        ...(s.resumeId ? ['resume', s.resumeId] : s.continued ? ['resume', '--last'] : []),
+        '-c', `sandbox_mode="${s.mode === 'auto' ? 'workspace-write' : 'read-only'}"`,
         prompt,
       ],
     },
@@ -127,12 +134,14 @@ export const BUILTIN_AGENTS = {
     loginHint: 'Follow the sign-in prompts on first start.',
     note: 'No config-dir option, so agy gets a private HOME (SSH keys in ~/.ssh are not visible). On macOS the login Keychain is shared - check the account agy shows.',
     keychain: { scope: 'shared' },
+    // Headless flags checked against agy 1.4.5; parsed by src/core/adapters/agy.js.
     headless: {
-      stream: 'text',
+      stream: 'agy-json',
       emptyHint: 'Some agy versions only print to a real terminal. Update agy (agy update) or use /native.',
       build: (prompt, s) => [
-        '-p', prompt, '--print-timeout', '15m',
-        ...(s.continued ? ['--continue'] : []),
+        '-p', prompt, '--output-format', 'stream-json', '--print-timeout', '15m',
+        ...(s.agentModel ? ['--model', s.agentModel] : []),
+        ...(s.resumeId ? ['--conversation', s.resumeId] : s.continued ? ['--continue'] : []),
         '--mode', s.mode === 'auto' ? 'accept-edits' : 'plan',
       ],
     },
@@ -146,14 +155,11 @@ export const BUILTIN_AGENTS = {
     loginArgs: ['list'],
     loginHint: 'Ollama runs locally without an account. Pull a model with: ollama pull qwen3:8b',
     note: 'Runs locally on your machine with zero cloud tokens. Shares local model weights across profiles.',
+    // No CLI for runs: src/core/adapters/ollama.js calls the HTTP API (/api/chat).
     headless: {
-      stream: 'text',
+      stream: 'ollama-http',
       emptyHint: 'Make sure Ollama is running (`ollama serve`) and a model is pulled (`ollama pull qwen3:8b`).',
-      build: (prompt, s) => [
-        'run',
-        s.model || process.env.COSMO_LOCAL_MODEL || 'qwen3:8b',
-        prompt,
-      ],
+      build: () => [],
     },
   },
 };

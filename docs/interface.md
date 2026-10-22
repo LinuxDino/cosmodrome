@@ -78,10 +78,11 @@ When the interface starts, and after every `/cd`, the profile whose `workdir` co
 
 With [Ollama](https://ollama.com) installed, `ollama` is one more agent (`@ollama`, also `@local`): it runs on your machine, needs no account and costs nothing.
 
-- `/router` configures the local router: a local model makes a short delegation decision for every message and hands work to the best executor (`<cosmo:subagent agent="codex" mode="auto">…</cosmo:subagent>`). Router mode and auto mode start enabled, specialists run in parallel when useful, and the executor reports progress. `/router off` sends messages directly to the active channel; `/router qwen3:8b` selects a model.
+- `/router` configures the router: for every message a planner returns a JSON plan (one direct step, or up to 4 steps with `dependsOn` and a synthesis agent). The plan is validated (known agents that are installed and not on cooldown, no step above the current mode, non-empty prompts, no cycles); anything invalid falls back to one direct step from the keyword router. Router mode and auto mode start enabled. `/router off` sends messages directly to the active channel; `/router qwen3:8b` selects the local model.
+- Planner: `"planner": "ollama" | "claude" | "off"` in the config (default `ollama` when installed). Ollama gets the plan's JSON schema as structured output. Keyword routing rules can be added with `"routing": [{ "match": "release|changelog", "agent": "copilot" }]`; they come before the built-in keywords, and an agent on cooldown is skipped.
 - `/delegate <task>` does that once; `/council <question>` asks several agents in parallel and merges their answers.
 - The model is the best one you have installed (`ollama list`), or `COSMO_LOCAL_MODEL`. Small tool-calling models such as Qwen3 8B are enough, since the real work stays with the agents.
-- The router is intentionally concise and always returns a routing decision. Subagents never get more rights than the current mode: ask mode is read-only, while auto mode permits edits. One answer starts at most 4 subagents.
+- Delegation only comes from the planner or from you (`/delegate`, `/council`, `@agent`). Text in an agent's answer never starts another agent, so a tag an agent read in a file or web page does nothing. Steps never get more rights than the current mode: ask mode is read-only, while auto mode permits edits. One plan has at most 4 steps.
 - Automatic model selection prefers `qwen3.5`, `qwen3`, `ministral-3`, `gemma4`, then `qwen2.5-coder`. Set `COSMO_LOCAL_MODEL` to override it.
 - When an agent hits a usage limit, the message goes to the next installed agent of the same profile and the first one pauses for 10 minutes. If all providers are limited, Cosmodrome waits for the earliest persisted cooldown and retries automatically. `/usage` shows runs, cost, cooldowns and switches.
 - Every natural-language task is persisted outside the repository. `/tasks` shows unfinished work, `/resume <task-id>` continues it after a restart, and `/cancel [task-id]` stops a task. Cosmo stores task metadata and event history, never credentials.
@@ -153,3 +154,8 @@ tmux new-session -d -s t -x 100 -y 40 'COSMODROME_HOME=/tmp/c node bin/cosmo.js'
 tmux send-keys -t t '/help' Enter
 tmux capture-pane -p -t t
 ```
+
+Without accounts, `COSMO_MOCK=1` replays recorded runs (`test/fixtures/<agent>/simple`) for every agent;
+`COSMO_MOCK=tool` replays the tool-use runs, `COSMO_MOCK_DELAY=40` slows the replay down (ms per line).
+In mock mode the planner is off unless `COSMO_MOCK_PLANNER=1`. `COSMO_RECORD=/some/dir` saves the raw
+output of real runs for new fixtures (remove personal data before committing them).

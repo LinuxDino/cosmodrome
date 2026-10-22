@@ -1,0 +1,14 @@
+{"type":"user.message","data":{"content":"Read a.txt"},"id":"00000000-0000-4000-8000-000000000101","timestamp":"2026-10-22T17:00:00.000Z"}
+{"type":"assistant.turn_start","data":{"turnId":"0"},"id":"00000000-0000-4000-8000-000000000102","timestamp":"2026-10-22T17:00:00.000Z"}
+{"type":"assistant.reasoning_delta","data":{"reasoningId":"r1","deltaContent":"Looking for the file"},"id":"00000000-0000-4000-8000-000000000103","timestamp":"2026-10-22T17:00:00.000Z","ephemeral":true}
+{"type":"assistant.message","data":{"messageId":"m0","model":"gpt-5.6","content":"","toolRequests":[{"toolCallId":"call_1","name":"view","arguments":{"path":"/work/a.txt"},"type":"function"}],"turnId":"0"},"id":"00000000-0000-4000-8000-000000000104","timestamp":"2026-10-22T17:00:00.000Z"}
+{"type":"tool.execution_start","data":{"toolCallId":"call_1","toolName":"view","arguments":{"path":"/work/a.txt"},"turnId":"0","toolTitle":"Viewing file"},"id":"00000000-0000-4000-8000-000000000105","timestamp":"2026-10-22T17:00:00.000Z"}
+{"type":"tool.execution_complete","data":{"toolCallId":"call_1","turnId":"0","success":true,"result":{"content":"hello\n"}},"id":"00000000-0000-4000-8000-000000000106","timestamp":"2026-10-22T17:00:00.000Z"}
+{"type":"assistant.turn_end","data":{"turnId":"0"},"id":"00000000-0000-4000-8000-000000000107","timestamp":"2026-10-22T17:00:00.000Z"}
+{"type":"assistant.turn_start","data":{"turnId":"1"},"id":"00000000-0000-4000-8000-000000000108","timestamp":"2026-10-22T17:00:00.000Z"}
+{"type":"assistant.message_start","data":{"messageId":"m1","phase":"final_answer"},"id":"00000000-0000-4000-8000-000000000109","timestamp":"2026-10-22T17:00:00.000Z","ephemeral":true}
+{"type":"assistant.message_delta","data":{"messageId":"m1","deltaContent":"hello"},"id":"00000000-0000-4000-8000-000000000110","timestamp":"2026-10-22T17:00:00.000Z","ephemeral":true}
+{"type":"assistant.message","data":{"messageId":"m1","model":"gpt-5.6","content":"hello","toolRequests":[],"turnId":"1","phase":"final_answer"},"id":"00000000-0000-4000-8000-000000000111","timestamp":"2026-10-22T17:00:00.000Z"}
+{"type":"assistant.turn_end","data":{"turnId":"1"},"id":"00000000-0000-4000-8000-000000000112","timestamp":"2026-10-22T17:00:00.000Z"}
+{"type":"assistant.idle","data":{},"id":"00000000-0000-4000-8000-000000000113","timestamp":"2026-10-22T17:00:00.000Z","ephemeral":true}
+{"type":"result","timestamp":"2026-10-22T17:00:05.000Z","sessionId":"22222222-2222-4222-8222-222222222222","exitCode":0,"usage":{"premiumRequests":1,"totalApiDurationMs":3100,"sessionDurationMs":4200,"codeChanges":{"linesAdded":0,"linesRemoved":0,"filesModified":[]}}}

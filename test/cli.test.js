@@ -14,8 +14,10 @@ function setup() {
   fs.mkdirSync(fakeBin);
   // A fake "claude" that prints what it would see.
   fs.writeFileSync(path.join(fakeBin, 'claude'), '#!/bin/sh\necho "DIR=$CLAUDE_CONFIG_DIR TOKEN=${GH_TOKEN:-none} ARGS=$*"\ngit config user.email\n', { mode: 0o755 });
+  // The tests expect opencode to be missing; drop folders that have it, or the real one starts and waits.
+  const hostPath = process.env.PATH.split(path.delimiter).filter((d) => d && !fs.existsSync(path.join(d, 'opencode')));
   const env = {
-    PATH: `${fakeBin}:${process.env.PATH}`,
+    PATH: [fakeBin, ...hostPath].join(path.delimiter),
     HOME: path.join(root, 'home'),
     COSMODROME_HOME: path.join(root, 'cosmo'),
     GH_TOKEN: 'from-shell',

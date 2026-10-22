@@ -12,7 +12,7 @@ Cosmodrome is a zero-dependency Node.js CLI for running Claude Code, GitHub Copi
 
 - **One interface:** send natural-language work to the best available agent.
 - **Separate accounts:** each profile has its own GitHub, git, and agent configuration.
-- **Autonomous workflows:** Ollama can route tasks, delegate specialists, and supervise plan → execute → verify → review loops.
+- **Autonomous workflows:** a local planner (Ollama) splits tasks into validated JSON plans and hands steps to the right agents.
 - **Durable work:** tasks, events, checkpoints, and unfinished work survive a Cosmo restart.
 - **Safe modes:** ask mode is read-only; auto mode allows the selected agent to edit the current folder.
 - **Artifacts:** save research, answers, and generated files as folders or zip archives.
@@ -99,13 +99,14 @@ Read the provider-specific login and permission notes in [docs/agents.md](docs/a
 
 ## Workflows
 
-Ollama is optional. When available, it acts as a local supervisor:
+Ollama is optional. When available, it acts as a local planner:
 
-1. Routes the task to the most suitable installed agent.
-2. Delegates research, implementation, testing, or review when useful.
-3. Tracks progress and provider limits.
-4. Retries or switches providers when possible.
-5. Returns a concise result with changed files and checks.
+1. Answers every message with a JSON plan: one agent, or up to 4 steps that may depend on each other.
+2. The plan is checked (installed agents, cooldowns, never above the current mode); an invalid plan falls back to a simple keyword router.
+3. Steps run in parallel where they can; a usage limit switches to the next healthy agent.
+4. Several steps end with one combined answer.
+
+Agents never start other agents from their own output; only the planner and your commands (`/delegate`, `/council`, `@agent`) do. Set `"planner": "claude"` or `"off"` in the config to change the planner. Every run is reported as events ([docs/protocol.md](docs/protocol.md)), which the interface renders.
 
 Durable task data is stored outside the repository under Cosmodrome's data directory. It contains task metadata and event history, not credentials.
 

@@ -192,10 +192,10 @@ export function initCustomizations(paths) {
     fs.mkdirSync(skillDir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(
       skillFile,
-      `---\nname: cosmo-orchestration\ndescription: Delegate subtasks across specialized agents (@claude, @codex, @agy, @copilot, @ollama) and return concise, attributable findings.\n---\n\n` +
+      `---\nname: cosmo-orchestration\ndescription: Work alongside specialized agents (@claude, @codex, @agy, @copilot, @ollama) and return concise, attributable findings.\n---\n\n` +
         `# Cosmodrome Multi-Agent Cooperation\n\n` +
         `1. Emit \`<cosmo:tool name="ToolName" detail="what you are doing" />\` when performing multi-step reasoning.\n` +
-        `2. Emit \`<cosmo:subagent agent="claude" mode="ask">subtask prompt</cosmo:subagent>\` to delegate work to another agent.\n` +
+        `2. You cannot start other agents. If another agent fits a subtask better, say so; the user can delegate with /delegate, /council or @agent.\n` +
         `3. Use \`[filename](file:///absolute/path#L10)\` for clickable terminal links.\n`,
       { mode: 0o600 },
     );
